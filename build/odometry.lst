@@ -1,0 +1,3054 @@
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 1
+
+
+   1              		.cpu cortex-m4
+   2              		.arch armv7e-m
+   3              		.fpu fpv4-sp-d16
+   4              		.eabi_attribute 27, 1
+   5              		.eabi_attribute 28, 1
+   6              		.eabi_attribute 20, 1
+   7              		.eabi_attribute 21, 1
+   8              		.eabi_attribute 23, 3
+   9              		.eabi_attribute 24, 1
+  10              		.eabi_attribute 25, 1
+  11              		.eabi_attribute 26, 1
+  12              		.eabi_attribute 30, 1
+  13              		.eabi_attribute 34, 1
+  14              		.eabi_attribute 18, 4
+  15              		.file	"odometry.c"
+  16              		.text
+  17              	.Ltext0:
+  18              		.cfi_sections	.debug_frame
+  19              		.section	.text.get_odom_msg,"ax",%progbits
+  20              		.align	1
+  21              		.global	get_odom_msg
+  22              		.syntax unified
+  23              		.thumb
+  24              		.thumb_func
+  26              	get_odom_msg:
+  27              	.LVL0:
+  28              	.LFB136:
+  29              		.file 1 "Drivers/calc_odometry/Src/odometry.c"
+   1:Drivers/calc_odometry/Src/odometry.c **** /*
+   2:Drivers/calc_odometry/Src/odometry.c ****  * odometry.c
+   3:Drivers/calc_odometry/Src/odometry.c ****  *
+   4:Drivers/calc_odometry/Src/odometry.c ****  *  Created on: Nov 24, 2022
+   5:Drivers/calc_odometry/Src/odometry.c ****  *      Author: SF
+   6:Drivers/calc_odometry/Src/odometry.c ****  */
+   7:Drivers/calc_odometry/Src/odometry.c **** #include <odometry.h>
+   8:Drivers/calc_odometry/Src/odometry.c **** 
+   9:Drivers/calc_odometry/Src/odometry.c **** #define PI	3.1415927f
+  10:Drivers/calc_odometry/Src/odometry.c **** #define R	0.034f
+  11:Drivers/calc_odometry/Src/odometry.c **** #define L	0.185f
+  12:Drivers/calc_odometry/Src/odometry.c **** #define meters_pertick 0.000511963f
+  13:Drivers/calc_odometry/Src/odometry.c **** 
+  14:Drivers/calc_odometry/Src/odometry.c **** #define PWM_MAX  400
+  15:Drivers/calc_odometry/Src/odometry.c **** #define PWM_MIN  120
+  16:Drivers/calc_odometry/Src/odometry.c **** 
+  17:Drivers/calc_odometry/Src/odometry.c **** odometry_ctx_t dev_ctx_odometry;
+  18:Drivers/calc_odometry/Src/odometry.c **** 
+  19:Drivers/calc_odometry/Src/odometry.c **** float angular_rate_dps[3], delta_gyro[3], delta_acceleration[3];
+  20:Drivers/calc_odometry/Src/odometry.c **** int16_t data_raw_magnetic[3], data_raw_acceleration[3] = {0, 0, 16348},
+  21:Drivers/calc_odometry/Src/odometry.c **** 			  data_raw_angular_rate[3] =  {0, 0, 0};
+  22:Drivers/calc_odometry/Src/odometry.c **** 
+  23:Drivers/calc_odometry/Src/odometry.c **** stmdev_ctx_t dev_ctx_gyro, dev_ctx_xl, dev_ctx_mg;
+  24:Drivers/calc_odometry/Src/odometry.c **** 
+  25:Drivers/calc_odometry/Src/odometry.c **** float prev_yaw = 0, init_yaw = 0;
+  26:Drivers/calc_odometry/Src/odometry.c **** float roll_9dof, pitch_9dof, yaw_9dof, global_yaw, local_yaw = 0;
+  27:Drivers/calc_odometry/Src/odometry.c **** 
+  28:Drivers/calc_odometry/Src/odometry.c **** int yaw_step = 0;
+  29:Drivers/calc_odometry/Src/odometry.c **** 
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 2
+
+
+  30:Drivers/calc_odometry/Src/odometry.c **** void odometry_init() {
+  31:Drivers/calc_odometry/Src/odometry.c **** 	odometry_ctx_t *ctx = &dev_ctx_odometry;
+  32:Drivers/calc_odometry/Src/odometry.c **** 
+  33:Drivers/calc_odometry/Src/odometry.c **** 	__HAL_TIM_SetCounter(&htim4, 32768);
+  34:Drivers/calc_odometry/Src/odometry.c **** 	__HAL_TIM_SetCounter(&htim2, 32768);
+  35:Drivers/calc_odometry/Src/odometry.c **** 
+  36:Drivers/calc_odometry/Src/odometry.c **** 	HAL_TIM_Encoder_Start(&htim4, TIM_CHANNEL_ALL);
+  37:Drivers/calc_odometry/Src/odometry.c **** 	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);
+  38:Drivers/calc_odometry/Src/odometry.c **** 	HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
+  39:Drivers/calc_odometry/Src/odometry.c **** 	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+  40:Drivers/calc_odometry/Src/odometry.c **** 
+  41:Drivers/calc_odometry/Src/odometry.c **** 	theta_init(ctx);
+  42:Drivers/calc_odometry/Src/odometry.c **** 
+  43:Drivers/calc_odometry/Src/odometry.c **** 	ctx->x = 0;
+  44:Drivers/calc_odometry/Src/odometry.c **** 	ctx->y = 0;
+  45:Drivers/calc_odometry/Src/odometry.c **** 	ctx->theta = 0;
+  46:Drivers/calc_odometry/Src/odometry.c **** 	ctx->dt = 0.01;
+  47:Drivers/calc_odometry/Src/odometry.c **** 
+  48:Drivers/calc_odometry/Src/odometry.c **** 	ctx->vel_r = 0;
+  49:Drivers/calc_odometry/Src/odometry.c **** 	ctx->vel_l = 0;
+  50:Drivers/calc_odometry/Src/odometry.c **** }
+  51:Drivers/calc_odometry/Src/odometry.c **** 
+  52:Drivers/calc_odometry/Src/odometry.c **** void theta_init(odometry_ctx_t *ctx) {
+  53:Drivers/calc_odometry/Src/odometry.c **** 	  lsm303agr_init(&dev_ctx_xl, &dev_ctx_mg);
+  54:Drivers/calc_odometry/Src/odometry.c **** 	  i3g4250d_init(&dev_ctx_gyro);
+  55:Drivers/calc_odometry/Src/odometry.c **** 
+  56:Drivers/calc_odometry/Src/odometry.c **** 	  i3G4250D_calib_gyro(&dev_ctx_gyro, data_raw_angular_rate , delta_gyro);
+  57:Drivers/calc_odometry/Src/odometry.c **** 
+  58:Drivers/calc_odometry/Src/odometry.c **** 	  lsm303agr_calib_xl(&dev_ctx_xl, data_raw_acceleration, delta_acceleration);
+  59:Drivers/calc_odometry/Src/odometry.c **** 
+  60:Drivers/calc_odometry/Src/odometry.c **** 	  lsm303agr_read_mag(&dev_ctx_mg, data_raw_magnetic);
+  61:Drivers/calc_odometry/Src/odometry.c **** 
+  62:Drivers/calc_odometry/Src/odometry.c **** 	  i3g4250d_read_norm_gyro(&dev_ctx_gyro, data_raw_angular_rate, delta_gyro, angular_rate_dps);
+  63:Drivers/calc_odometry/Src/odometry.c **** 
+  64:Drivers/calc_odometry/Src/odometry.c **** 	  lsm303agr_read_calibrated_xl(&dev_ctx_xl, data_raw_acceleration, delta_acceleration);
+  65:Drivers/calc_odometry/Src/odometry.c **** 
+  66:Drivers/calc_odometry/Src/odometry.c **** 	  calc_yaw_pitch_roll_9dof(
+  67:Drivers/calc_odometry/Src/odometry.c **** 			  data_raw_acceleration, data_raw_magnetic, angular_rate_dps,
+  68:Drivers/calc_odometry/Src/odometry.c **** 			  &roll_9dof, &pitch_9dof, &yaw_9dof
+  69:Drivers/calc_odometry/Src/odometry.c **** 			  );
+  70:Drivers/calc_odometry/Src/odometry.c **** 
+  71:Drivers/calc_odometry/Src/odometry.c **** 	  ctx->init_theta = yaw_9dof;
+  72:Drivers/calc_odometry/Src/odometry.c **** }
+  73:Drivers/calc_odometry/Src/odometry.c **** 
+  74:Drivers/calc_odometry/Src/odometry.c **** void update_yaw() {
+  75:Drivers/calc_odometry/Src/odometry.c **** 	prev_yaw = yaw_9dof;
+  76:Drivers/calc_odometry/Src/odometry.c **** 
+  77:Drivers/calc_odometry/Src/odometry.c **** 	lsm303agr_read_mag(&dev_ctx_mg, data_raw_magnetic);
+  78:Drivers/calc_odometry/Src/odometry.c **** 	lsm303agr_read_calibrated_xl(&dev_ctx_xl, data_raw_acceleration, delta_acceleration);
+  79:Drivers/calc_odometry/Src/odometry.c **** 	i3g4250d_read_norm_gyro(&dev_ctx_gyro, data_raw_angular_rate, delta_gyro, angular_rate_dps);
+  80:Drivers/calc_odometry/Src/odometry.c **** 
+  81:Drivers/calc_odometry/Src/odometry.c **** 	calc_yaw_pitch_roll_9dof(
+  82:Drivers/calc_odometry/Src/odometry.c **** 	  data_raw_acceleration, data_raw_magnetic, angular_rate_dps,
+  83:Drivers/calc_odometry/Src/odometry.c **** 	  &roll_9dof, &pitch_9dof, &yaw_9dof
+  84:Drivers/calc_odometry/Src/odometry.c **** 	);
+  85:Drivers/calc_odometry/Src/odometry.c **** 
+  86:Drivers/calc_odometry/Src/odometry.c **** }
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 3
+
+
+  87:Drivers/calc_odometry/Src/odometry.c **** 
+  88:Drivers/calc_odometry/Src/odometry.c **** void get_odom_msg(firmware_msgs__msg__McuPose *msg) {
+  30              		.loc 1 88 53 view -0
+  31              		.cfi_startproc
+  32              		@ args = 0, pretend = 0, frame = 0
+  33              		@ frame_needed = 0, uses_anonymous_args = 0
+  34              		@ link register save eliminated.
+  89:Drivers/calc_odometry/Src/odometry.c **** 	msg->x = dev_ctx_odometry.x;
+  35              		.loc 1 89 2 view .LVU1
+  36              		.loc 1 89 27 is_stmt 0 view .LVU2
+  37 0000 0A4B     		ldr	r3, .L2
+  38 0002 1A68     		ldr	r2, [r3]	@ float
+  39              		.loc 1 89 9 view .LVU3
+  40 0004 0260     		str	r2, [r0]	@ float
+  90:Drivers/calc_odometry/Src/odometry.c **** 	msg->y = dev_ctx_odometry.y;
+  41              		.loc 1 90 2 is_stmt 1 view .LVU4
+  42              		.loc 1 90 27 is_stmt 0 view .LVU5
+  43 0006 5A68     		ldr	r2, [r3, #4]	@ float
+  44              		.loc 1 90 9 view .LVU6
+  45 0008 4260     		str	r2, [r0, #4]	@ float
+  91:Drivers/calc_odometry/Src/odometry.c **** 	msg->theta = dev_ctx_odometry.theta;
+  46              		.loc 1 91 2 is_stmt 1 view .LVU7
+  47              		.loc 1 91 31 is_stmt 0 view .LVU8
+  48 000a 9A68     		ldr	r2, [r3, #8]	@ float
+  49              		.loc 1 91 13 view .LVU9
+  50 000c 8260     		str	r2, [r0, #8]	@ float
+  92:Drivers/calc_odometry/Src/odometry.c **** 	msg->v_left = (int) dev_ctx_odometry.vel_l;
+  51              		.loc 1 92 2 is_stmt 1 view .LVU10
+  52              		.loc 1 92 38 is_stmt 0 view .LVU11
+  53 000e D3ED067A 		vldr.32	s15, [r3, #24]
+  54              		.loc 1 92 16 view .LVU12
+  55 0012 FDEEE77A 		vcvt.s32.f32	s15, s15
+  56              		.loc 1 92 14 view .LVU13
+  57 0016 17EE902A 		vmov	r2, s15	@ int
+  58 001a 8281     		strh	r2, [r0, #12]	@ movhi
+  93:Drivers/calc_odometry/Src/odometry.c **** 	msg->v_right = (int) dev_ctx_odometry.vel_r;
+  59              		.loc 1 93 2 is_stmt 1 view .LVU14
+  60              		.loc 1 93 39 is_stmt 0 view .LVU15
+  61 001c D3ED057A 		vldr.32	s15, [r3, #20]
+  62              		.loc 1 93 17 view .LVU16
+  63 0020 FDEEE77A 		vcvt.s32.f32	s15, s15
+  64              		.loc 1 93 15 view .LVU17
+  65 0024 17EE903A 		vmov	r3, s15	@ int
+  66 0028 C381     		strh	r3, [r0, #14]	@ movhi
+  94:Drivers/calc_odometry/Src/odometry.c **** }
+  67              		.loc 1 94 1 view .LVU18
+  68 002a 7047     		bx	lr
+  69              	.L3:
+  70              		.align	2
+  71              	.L2:
+  72 002c 00000000 		.word	.LANCHOR0
+  73              		.cfi_endproc
+  74              	.LFE136:
+  76              		.section	.text.odometry_pid_init,"ax",%progbits
+  77              		.align	1
+  78              		.global	odometry_pid_init
+  79              		.syntax unified
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 4
+
+
+  80              		.thumb
+  81              		.thumb_func
+  83              	odometry_pid_init:
+  84              	.LVL1:
+  85              	.LFB137:
+  95:Drivers/calc_odometry/Src/odometry.c **** 
+  96:Drivers/calc_odometry/Src/odometry.c **** void odometry_pid_init(PID_CONTROL_t *ctx) {
+  86              		.loc 1 96 44 is_stmt 1 view -0
+  87              		.cfi_startproc
+  88              		@ args = 0, pretend = 0, frame = 0
+  89              		@ frame_needed = 0, uses_anonymous_args = 0
+  90              		@ link register save eliminated.
+  97:Drivers/calc_odometry/Src/odometry.c **** 	ctx->dKp = 0; // 21 16.6
+  91              		.loc 1 97 2 view .LVU20
+  92              		.loc 1 97 11 is_stmt 0 view .LVU21
+  93 0000 0023     		movs	r3, #0
+  94 0002 0360     		str	r3, [r0]	@ float
+  98:Drivers/calc_odometry/Src/odometry.c **** 	ctx->dKi = 0; // 5   4
+  95              		.loc 1 98 2 is_stmt 1 view .LVU22
+  96              		.loc 1 98 11 is_stmt 0 view .LVU23
+  97 0004 4360     		str	r3, [r0, #4]	@ float
+  99:Drivers/calc_odometry/Src/odometry.c **** 	ctx->dKd = 0; // 2   1.6
+  98              		.loc 1 99 2 is_stmt 1 view .LVU24
+  99              		.loc 1 99 11 is_stmt 0 view .LVU25
+ 100 0006 8360     		str	r3, [r0, #8]	@ float
+ 100:Drivers/calc_odometry/Src/odometry.c **** 	ctx->dErrorTerm = 0;
+ 101              		.loc 1 100 2 is_stmt 1 view .LVU26
+ 102              		.loc 1 100 18 is_stmt 0 view .LVU27
+ 103 0008 C360     		str	r3, [r0, #12]	@ float
+ 101:Drivers/calc_odometry/Src/odometry.c **** 	ctx->dIntergral = 0;
+ 104              		.loc 1 101 2 is_stmt 1 view .LVU28
+ 105              		.loc 1 101 18 is_stmt 0 view .LVU29
+ 106 000a 0361     		str	r3, [r0, #16]	@ float
+ 102:Drivers/calc_odometry/Src/odometry.c **** 	ctx->u = 0;
+ 107              		.loc 1 102 2 is_stmt 1 view .LVU30
+ 108              		.loc 1 102 9 is_stmt 0 view .LVU31
+ 109 000c 4361     		str	r3, [r0, #20]	@ float
+ 103:Drivers/calc_odometry/Src/odometry.c **** }
+ 110              		.loc 1 103 1 view .LVU32
+ 111 000e 7047     		bx	lr
+ 112              		.cfi_endproc
+ 113              	.LFE137:
+ 115              		.global	__aeabi_dadd
+ 116              		.global	__aeabi_dmul
+ 117              		.global	__aeabi_dsub
+ 118              		.global	__aeabi_ddiv
+ 119              		.global	__aeabi_d2f
+ 120              		.section	.text.update_vel_wheels,"ax",%progbits
+ 121              		.align	1
+ 122              		.global	update_vel_wheels
+ 123              		.syntax unified
+ 124              		.thumb
+ 125              		.thumb_func
+ 127              	update_vel_wheels:
+ 128              	.LVL2:
+ 129              	.LFB139:
+ 104:Drivers/calc_odometry/Src/odometry.c **** 
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 5
+
+
+ 105:Drivers/calc_odometry/Src/odometry.c **** void update_step()
+ 106:Drivers/calc_odometry/Src/odometry.c **** {
+ 107:Drivers/calc_odometry/Src/odometry.c **** 	odometry_ctx_t *ctx  = &dev_ctx_odometry;
+ 108:Drivers/calc_odometry/Src/odometry.c **** 
+ 109:Drivers/calc_odometry/Src/odometry.c **** 	float delta_ticks_left = ((int32_t) TIM4->CNT - 32768);
+ 110:Drivers/calc_odometry/Src/odometry.c **** 	float delta_ticks_right = ((int32_t) TIM2->CNT - 32768);
+ 111:Drivers/calc_odometry/Src/odometry.c **** 
+ 112:Drivers/calc_odometry/Src/odometry.c **** 	  __HAL_TIM_SetCounter(&htim4, 32768);
+ 113:Drivers/calc_odometry/Src/odometry.c **** 	  __HAL_TIM_SetCounter(&htim2, 32768);
+ 114:Drivers/calc_odometry/Src/odometry.c **** 
+ 115:Drivers/calc_odometry/Src/odometry.c **** 	float wl = delta_ticks_left / 1980.0 * 2.0 * PI;
+ 116:Drivers/calc_odometry/Src/odometry.c **** 	float wr = delta_ticks_right / 1980.0 * 2.0 * PI;
+ 117:Drivers/calc_odometry/Src/odometry.c **** 	float mTheta = calc_theta(yaw_9dof, ctx->init_theta);
+ 118:Drivers/calc_odometry/Src/odometry.c **** 
+ 119:Drivers/calc_odometry/Src/odometry.c **** 	float vl = wl*R;
+ 120:Drivers/calc_odometry/Src/odometry.c **** 	float vr = wr*R;
+ 121:Drivers/calc_odometry/Src/odometry.c **** 	float v = (vl + vr) / 2.0;
+ 122:Drivers/calc_odometry/Src/odometry.c **** 
+ 123:Drivers/calc_odometry/Src/odometry.c **** 	ctx->x += v*cosf(mTheta);
+ 124:Drivers/calc_odometry/Src/odometry.c **** 	ctx->y += v*sinf(mTheta);
+ 125:Drivers/calc_odometry/Src/odometry.c **** 	ctx->theta = mTheta;
+ 126:Drivers/calc_odometry/Src/odometry.c **** }
+ 127:Drivers/calc_odometry/Src/odometry.c **** 
+ 128:Drivers/calc_odometry/Src/odometry.c **** void update_vel_wheels(geometry_msgs__msg__Twist *cmdVel) {
+ 130              		.loc 1 128 59 is_stmt 1 view -0
+ 131              		.cfi_startproc
+ 132              		@ args = 0, pretend = 0, frame = 0
+ 133              		@ frame_needed = 0, uses_anonymous_args = 0
+ 134              		.loc 1 128 59 is_stmt 0 view .LVU34
+ 135 0000 F8B5     		push	{r3, r4, r5, r6, r7, lr}
+ 136              	.LCFI0:
+ 137              		.cfi_def_cfa_offset 24
+ 138              		.cfi_offset 3, -24
+ 139              		.cfi_offset 4, -20
+ 140              		.cfi_offset 5, -16
+ 141              		.cfi_offset 6, -12
+ 142              		.cfi_offset 7, -8
+ 143              		.cfi_offset 14, -4
+ 144 0002 2DED048B 		vpush.64	{d8, d9}
+ 145              	.LCFI1:
+ 146              		.cfi_def_cfa_offset 40
+ 147              		.cfi_offset 80, -40
+ 148              		.cfi_offset 81, -36
+ 149              		.cfi_offset 82, -32
+ 150              		.cfi_offset 83, -28
+ 151 0006 0646     		mov	r6, r0
+ 129:Drivers/calc_odometry/Src/odometry.c **** 
+ 130:Drivers/calc_odometry/Src/odometry.c **** 	float pwmLeftReq =  ((2 * cmdVel->linear.x - cmdVel->angular.z * L) / (2* R));
+ 152              		.loc 1 130 2 is_stmt 1 view .LVU35
+ 153              		.loc 1 130 42 is_stmt 0 view .LVU36
+ 154 0008 D0E90001 		ldrd	r0, [r0]
+ 155              	.LVL3:
+ 156              		.loc 1 130 26 view .LVU37
+ 157 000c 0246     		mov	r2, r0
+ 158 000e 0B46     		mov	r3, r1
+ 159 0010 FFF7FEFF 		bl	__aeabi_dadd
+ 160              	.LVL4:
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 6
+
+
+ 161 0014 0446     		mov	r4, r0
+ 162 0016 0D46     		mov	r5, r1
+ 163              		.loc 1 130 65 view .LVU38
+ 164 0018 55A3     		adr	r3, .L23+24
+ 165 001a D3E90023 		ldrd	r2, [r3]
+ 166 001e D6E90A01 		ldrd	r0, [r6, #40]
+ 167 0022 FFF7FEFF 		bl	__aeabi_dmul
+ 168              	.LVL5:
+ 169 0026 0646     		mov	r6, r0
+ 170              	.LVL6:
+ 171              		.loc 1 130 65 view .LVU39
+ 172 0028 0F46     		mov	r7, r1
+ 173              		.loc 1 130 45 view .LVU40
+ 174 002a 0246     		mov	r2, r0
+ 175 002c 0B46     		mov	r3, r1
+ 176 002e 2046     		mov	r0, r4
+ 177 0030 2946     		mov	r1, r5
+ 178 0032 FFF7FEFF 		bl	__aeabi_dsub
+ 179              	.LVL7:
+ 180              		.loc 1 130 70 view .LVU41
+ 181 0036 50A3     		adr	r3, .L23+32
+ 182 0038 D3E90023 		ldrd	r2, [r3]
+ 183 003c FFF7FEFF 		bl	__aeabi_ddiv
+ 184              	.LVL8:
+ 185              		.loc 1 130 8 view .LVU42
+ 186 0040 FFF7FEFF 		bl	__aeabi_d2f
+ 187              	.LVL9:
+ 188 0044 09EE100A 		vmov	s18, r0
+ 189              	.LVL10:
+ 131:Drivers/calc_odometry/Src/odometry.c **** 	float pwmRightReq = ((2 * cmdVel->linear.x + cmdVel->angular.z * L) / (2* R));
+ 190              		.loc 1 131 2 is_stmt 1 view .LVU43
+ 191              		.loc 1 131 45 is_stmt 0 view .LVU44
+ 192 0048 3246     		mov	r2, r6
+ 193 004a 3B46     		mov	r3, r7
+ 194 004c 2046     		mov	r0, r4
+ 195              	.LVL11:
+ 196              		.loc 1 131 45 view .LVU45
+ 197 004e 2946     		mov	r1, r5
+ 198 0050 FFF7FEFF 		bl	__aeabi_dadd
+ 199              	.LVL12:
+ 200              		.loc 1 131 70 view .LVU46
+ 201 0054 48A3     		adr	r3, .L23+32
+ 202 0056 D3E90023 		ldrd	r2, [r3]
+ 203 005a FFF7FEFF 		bl	__aeabi_ddiv
+ 204              	.LVL13:
+ 205              		.loc 1 131 8 view .LVU47
+ 206 005e FFF7FEFF 		bl	__aeabi_d2f
+ 207              	.LVL14:
+ 208 0062 07EE900A 		vmov	s15, r0
+ 209              	.LVL15:
+ 132:Drivers/calc_odometry/Src/odometry.c **** 
+ 133:Drivers/calc_odometry/Src/odometry.c **** 	float absPwmLeftReq = abs(pwmLeftReq);
+ 210              		.loc 1 133 2 is_stmt 1 view .LVU48
+ 211              		.loc 1 133 24 is_stmt 0 view .LVU49
+ 212 0066 FDEEC98A 		vcvt.s32.f32	s17, s18
+ 213 006a 18EE903A 		vmov	r3, s17	@ int
+ 214 006e 002B     		cmp	r3, #0
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 7
+
+
+ 215 0070 B8BF     		it	lt
+ 216 0072 5B42     		rsblt	r3, r3, #0
+ 217 0074 08EE903A 		vmov	s17, r3	@ int
+ 218              		.loc 1 133 8 view .LVU50
+ 219 0078 F8EEE88A 		vcvt.f32.s32	s17, s17
+ 220              	.LVL16:
+ 134:Drivers/calc_odometry/Src/odometry.c **** 	float absPwmRightReq = abs(pwmRightReq);
+ 221              		.loc 1 134 2 is_stmt 1 view .LVU51
+ 222              		.loc 1 134 25 is_stmt 0 view .LVU52
+ 223 007c BDEEE78A 		vcvt.s32.f32	s16, s15
+ 224 0080 18EE103A 		vmov	r3, s16	@ int
+ 225 0084 002B     		cmp	r3, #0
+ 226 0086 B8BF     		it	lt
+ 227 0088 5B42     		rsblt	r3, r3, #0
+ 228 008a 08EE103A 		vmov	s16, r3	@ int
+ 229              		.loc 1 134 8 view .LVU53
+ 230 008e B8EEC88A 		vcvt.f32.s32	s16, s16
+ 231              	.LVL17:
+ 135:Drivers/calc_odometry/Src/odometry.c **** 
+ 136:Drivers/calc_odometry/Src/odometry.c **** 
+ 137:Drivers/calc_odometry/Src/odometry.c **** //	if (absPwmLeftReq < PWM_MIN ) {
+ 138:Drivers/calc_odometry/Src/odometry.c **** //		pwmLeftReq = 0;
+ 139:Drivers/calc_odometry/Src/odometry.c **** //	}
+ 140:Drivers/calc_odometry/Src/odometry.c **** //
+ 141:Drivers/calc_odometry/Src/odometry.c **** //	if (absPwmRightReq < PWM_MIN ) {
+ 142:Drivers/calc_odometry/Src/odometry.c **** //		pwmRightReq = 0;
+ 143:Drivers/calc_odometry/Src/odometry.c **** //	}
+ 144:Drivers/calc_odometry/Src/odometry.c **** 
+ 145:Drivers/calc_odometry/Src/odometry.c **** 	if (pwmRightReq  > 0) { // Right wheel forward
+ 232              		.loc 1 145 2 is_stmt 1 view .LVU54
+ 233              		.loc 1 145 5 is_stmt 0 view .LVU55
+ 234 0092 F5EEC07A 		vcmpe.f32	s15, #0
+ 235 0096 F1EE10FA 		vmrs	APSR_nzcv, FPSCR
+ 236 009a 41DD     		ble	.L20
+ 146:Drivers/calc_odometry/Src/odometry.c **** 		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET);
+ 237              		.loc 1 146 3 is_stmt 1 view .LVU56
+ 238 009c 0022     		movs	r2, #0
+ 239 009e 0221     		movs	r1, #2
+ 240 00a0 2D48     		ldr	r0, .L23
+ 241              	.LVL18:
+ 242              		.loc 1 146 3 is_stmt 0 view .LVU57
+ 243 00a2 FFF7FEFF 		bl	HAL_GPIO_WritePin
+ 244              	.LVL19:
+ 147:Drivers/calc_odometry/Src/odometry.c **** 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_5, GPIO_PIN_SET);
+ 245              		.loc 1 147 3 is_stmt 1 view .LVU58
+ 246 00a6 0122     		movs	r2, #1
+ 247 00a8 2021     		movs	r1, #32
+ 248 00aa 2C48     		ldr	r0, .L23+4
+ 249 00ac FFF7FEFF 		bl	HAL_GPIO_WritePin
+ 250              	.LVL20:
+ 251              	.L8:
+ 148:Drivers/calc_odometry/Src/odometry.c **** 	}
+ 149:Drivers/calc_odometry/Src/odometry.c **** 	else  { // Right wheel reverse
+ 150:Drivers/calc_odometry/Src/odometry.c **** 		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
+ 151:Drivers/calc_odometry/Src/odometry.c **** 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_5, GPIO_PIN_RESET);
+ 152:Drivers/calc_odometry/Src/odometry.c **** 	}
+ 153:Drivers/calc_odometry/Src/odometry.c **** 
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 8
+
+
+ 154:Drivers/calc_odometry/Src/odometry.c **** 	if (pwmLeftReq > 0) { // Left wheel forward
+ 252              		.loc 1 154 2 view .LVU59
+ 253              		.loc 1 154 5 is_stmt 0 view .LVU60
+ 254 00b0 B5EEC09A 		vcmpe.f32	s18, #0
+ 255 00b4 F1EE10FA 		vmrs	APSR_nzcv, FPSCR
+ 256 00b8 3DDD     		ble	.L21
+ 155:Drivers/calc_odometry/Src/odometry.c **** 	   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+ 257              		.loc 1 155 5 is_stmt 1 view .LVU61
+ 258 00ba 284C     		ldr	r4, .L23+4
+ 259 00bc 0122     		movs	r2, #1
+ 260 00be 4FF40051 		mov	r1, #8192
+ 261 00c2 2046     		mov	r0, r4
+ 262 00c4 FFF7FEFF 		bl	HAL_GPIO_WritePin
+ 263              	.LVL21:
+ 156:Drivers/calc_odometry/Src/odometry.c **** 	   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_15, GPIO_PIN_RESET);
+ 264              		.loc 1 156 5 view .LVU62
+ 265 00c8 0022     		movs	r2, #0
+ 266 00ca 4FF40041 		mov	r1, #32768
+ 267 00ce 2046     		mov	r0, r4
+ 268 00d0 FFF7FEFF 		bl	HAL_GPIO_WritePin
+ 269              	.LVL22:
+ 270              	.L11:
+ 157:Drivers/calc_odometry/Src/odometry.c **** 	} else { // Left wheel reverse
+ 158:Drivers/calc_odometry/Src/odometry.c **** 	   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_15, GPIO_PIN_SET);
+ 159:Drivers/calc_odometry/Src/odometry.c **** 	   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+ 160:Drivers/calc_odometry/Src/odometry.c **** 	}
+ 161:Drivers/calc_odometry/Src/odometry.c **** 
+ 162:Drivers/calc_odometry/Src/odometry.c **** 	pwmLeftReq   = (absPwmLeftReq > PWM_MAX) ? PWM_MAX : absPwmLeftReq;
+ 271              		.loc 1 162 2 view .LVU63
+ 272              		.loc 1 162 53 is_stmt 0 view .LVU64
+ 273 00d4 DFED227A 		vldr.32	s15, .L23+8
+ 274 00d8 F4EEE78A 		vcmpe.f32	s17, s15
+ 275 00dc F1EE10FA 		vmrs	APSR_nzcv, FPSCR
+ 276 00e0 01DD     		ble	.L12
+ 277 00e2 F0EE678A 		vmov.f32	s17, s15
+ 278              	.LVL23:
+ 279              	.L12:
+ 163:Drivers/calc_odometry/Src/odometry.c **** 	pwmRightReq  = (absPwmRightReq > PWM_MAX)? PWM_MAX : absPwmRightReq;
+ 280              		.loc 1 163 2 is_stmt 1 discriminator 4 view .LVU65
+ 281              		.loc 1 163 53 is_stmt 0 discriminator 4 view .LVU66
+ 282 00e6 DFED1E7A 		vldr.32	s15, .L23+8
+ 283 00ea B4EEE78A 		vcmpe.f32	s16, s15
+ 284 00ee F1EE10FA 		vmrs	APSR_nzcv, FPSCR
+ 285 00f2 01DD     		ble	.L14
+ 286              		.loc 1 163 53 view .LVU67
+ 287 00f4 B0EE678A 		vmov.f32	s16, s15
+ 288              	.LVL24:
+ 289              	.L14:
+ 164:Drivers/calc_odometry/Src/odometry.c **** 
+ 165:Drivers/calc_odometry/Src/odometry.c **** 	__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, pwmLeftReq);
+ 290              		.loc 1 165 2 is_stmt 1 discriminator 4 view .LVU68
+ 291 00f8 1A4B     		ldr	r3, .L23+12
+ 292 00fa 1B68     		ldr	r3, [r3]
+ 293 00fc FCEEE87A 		vcvt.u32.f32	s15, s17
+ 294 0100 C3ED0E7A 		vstr.32	s15, [r3, #56]	@ int
+ 166:Drivers/calc_odometry/Src/odometry.c **** 	__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, pwmRightReq);
+ 295              		.loc 1 166 2 discriminator 4 view .LVU69
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 9
+
+
+ 296 0104 184B     		ldr	r3, .L23+16
+ 297 0106 1B68     		ldr	r3, [r3]
+ 298 0108 FCEEC87A 		vcvt.u32.f32	s15, s16
+ 299 010c C3ED0D7A 		vstr.32	s15, [r3, #52]	@ int
+ 167:Drivers/calc_odometry/Src/odometry.c **** 
+ 168:Drivers/calc_odometry/Src/odometry.c **** 	dev_ctx_odometry.vel_l = pwmLeftReq;
+ 300              		.loc 1 168 2 discriminator 4 view .LVU70
+ 301              		.loc 1 168 25 is_stmt 0 discriminator 4 view .LVU71
+ 302 0110 164B     		ldr	r3, .L23+20
+ 303 0112 C3ED068A 		vstr.32	s17, [r3, #24]
+ 169:Drivers/calc_odometry/Src/odometry.c **** 	dev_ctx_odometry.vel_r = pwmRightReq;
+ 304              		.loc 1 169 2 is_stmt 1 discriminator 4 view .LVU72
+ 305              		.loc 1 169 25 is_stmt 0 discriminator 4 view .LVU73
+ 306 0116 83ED058A 		vstr.32	s16, [r3, #20]
+ 170:Drivers/calc_odometry/Src/odometry.c **** }
+ 307              		.loc 1 170 1 discriminator 4 view .LVU74
+ 308 011a BDEC048B 		vldm	sp!, {d8-d9}
+ 309              	.LCFI2:
+ 310              		.cfi_remember_state
+ 311              		.cfi_restore 82
+ 312              		.cfi_restore 83
+ 313              		.cfi_restore 80
+ 314              		.cfi_restore 81
+ 315              		.cfi_def_cfa_offset 24
+ 316              	.LVL25:
+ 317              		.loc 1 170 1 discriminator 4 view .LVU75
+ 318 011e F8BD     		pop	{r3, r4, r5, r6, r7, pc}
+ 319              	.LVL26:
+ 320              	.L20:
+ 321              	.LCFI3:
+ 322              		.cfi_restore_state
+ 150:Drivers/calc_odometry/Src/odometry.c **** 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_5, GPIO_PIN_RESET);
+ 323              		.loc 1 150 3 is_stmt 1 view .LVU76
+ 324 0120 0122     		movs	r2, #1
+ 325 0122 0221     		movs	r1, #2
+ 326 0124 0C48     		ldr	r0, .L23
+ 327              	.LVL27:
+ 150:Drivers/calc_odometry/Src/odometry.c **** 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_5, GPIO_PIN_RESET);
+ 328              		.loc 1 150 3 is_stmt 0 view .LVU77
+ 329 0126 FFF7FEFF 		bl	HAL_GPIO_WritePin
+ 330              	.LVL28:
+ 151:Drivers/calc_odometry/Src/odometry.c **** 	}
+ 331              		.loc 1 151 3 is_stmt 1 view .LVU78
+ 332 012a 0022     		movs	r2, #0
+ 333 012c 2021     		movs	r1, #32
+ 334 012e 0B48     		ldr	r0, .L23+4
+ 335 0130 FFF7FEFF 		bl	HAL_GPIO_WritePin
+ 336              	.LVL29:
+ 337 0134 BCE7     		b	.L8
+ 338              	.L21:
+ 158:Drivers/calc_odometry/Src/odometry.c **** 	   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+ 339              		.loc 1 158 5 view .LVU79
+ 340 0136 094C     		ldr	r4, .L23+4
+ 341 0138 0122     		movs	r2, #1
+ 342 013a 4FF40041 		mov	r1, #32768
+ 343 013e 2046     		mov	r0, r4
+ 344 0140 FFF7FEFF 		bl	HAL_GPIO_WritePin
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 10
+
+
+ 345              	.LVL30:
+ 159:Drivers/calc_odometry/Src/odometry.c **** 	}
+ 346              		.loc 1 159 5 view .LVU80
+ 347 0144 0022     		movs	r2, #0
+ 348 0146 4FF40051 		mov	r1, #8192
+ 349 014a 2046     		mov	r0, r4
+ 350 014c FFF7FEFF 		bl	HAL_GPIO_WritePin
+ 351              	.LVL31:
+ 352 0150 C0E7     		b	.L11
+ 353              	.L24:
+ 354 0152 00BFAFF3 		.align	3
+ 354      0080
+ 355              	.L23:
+ 356 0158 00040240 		.word	1073873920
+ 357 015c 00080240 		.word	1073874944
+ 358 0160 0000C843 		.word	1137180672
+ 359 0164 00000000 		.word	htim3
+ 360 0168 00000000 		.word	htim1
+ 361 016c 00000000 		.word	.LANCHOR0
+ 362 0170 00000080 		.word	-2147483648
+ 363 0174 14AEC73F 		.word	1070050836
+ 364 0178 000000C0 		.word	-1073741824
+ 365 017c 7268B13F 		.word	1068591218
+ 366              		.cfi_endproc
+ 367              	.LFE139:
+ 369              		.section	.text.set_vel_wheels,"ax",%progbits
+ 370              		.align	1
+ 371              		.global	set_vel_wheels
+ 372              		.syntax unified
+ 373              		.thumb
+ 374              		.thumb_func
+ 376              	set_vel_wheels:
+ 377              	.LFB140:
+ 171:Drivers/calc_odometry/Src/odometry.c **** 
+ 172:Drivers/calc_odometry/Src/odometry.c **** 
+ 173:Drivers/calc_odometry/Src/odometry.c **** void set_vel_wheels() {
+ 378              		.loc 1 173 23 view -0
+ 379              		.cfi_startproc
+ 380              		@ args = 0, pretend = 0, frame = 0
+ 381              		@ frame_needed = 0, uses_anonymous_args = 0
+ 382 0000 70B5     		push	{r4, r5, r6, lr}
+ 383              	.LCFI4:
+ 384              		.cfi_def_cfa_offset 16
+ 385              		.cfi_offset 4, -16
+ 386              		.cfi_offset 5, -12
+ 387              		.cfi_offset 6, -8
+ 388              		.cfi_offset 14, -4
+ 174:Drivers/calc_odometry/Src/odometry.c **** 
+ 175:Drivers/calc_odometry/Src/odometry.c **** 	int pwmLeftReq = (int) dev_ctx_odometry.vel_l ;
+ 389              		.loc 1 175 2 view .LVU82
+ 390              		.loc 1 175 41 is_stmt 0 view .LVU83
+ 391 0002 274B     		ldr	r3, .L31
+ 392 0004 D3ED067A 		vldr.32	s15, [r3, #24]
+ 393              		.loc 1 175 6 view .LVU84
+ 394 0008 FDEEE77A 		vcvt.s32.f32	s15, s15
+ 395 000c 17EE905A 		vmov	r5, s15	@ int
+ 396              	.LVL32:
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 11
+
+
+ 176:Drivers/calc_odometry/Src/odometry.c **** 	int pwmRightReq = (int) dev_ctx_odometry.vel_r ;
+ 397              		.loc 1 176 2 is_stmt 1 view .LVU85
+ 398              		.loc 1 176 42 is_stmt 0 view .LVU86
+ 399 0010 D3ED057A 		vldr.32	s15, [r3, #20]
+ 400              		.loc 1 176 6 view .LVU87
+ 401 0014 FDEEE77A 		vcvt.s32.f32	s15, s15
+ 402 0018 17EE904A 		vmov	r4, s15	@ int
+ 403              	.LVL33:
+ 177:Drivers/calc_odometry/Src/odometry.c **** 
+ 178:Drivers/calc_odometry/Src/odometry.c **** 	if (pwmRightReq  > 0) { // Right wheel forward
+ 404              		.loc 1 178 2 is_stmt 1 view .LVU88
+ 405              		.loc 1 178 5 is_stmt 0 view .LVU89
+ 406 001c 002C     		cmp	r4, #0
+ 407 001e 25DD     		ble	.L26
+ 179:Drivers/calc_odometry/Src/odometry.c **** 		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET);
+ 408              		.loc 1 179 3 is_stmt 1 view .LVU90
+ 409 0020 0022     		movs	r2, #0
+ 410 0022 0221     		movs	r1, #2
+ 411 0024 1F48     		ldr	r0, .L31+4
+ 412 0026 FFF7FEFF 		bl	HAL_GPIO_WritePin
+ 413              	.LVL34:
+ 180:Drivers/calc_odometry/Src/odometry.c **** 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_5, GPIO_PIN_SET);
+ 414              		.loc 1 180 3 view .LVU91
+ 415 002a 0122     		movs	r2, #1
+ 416 002c 2021     		movs	r1, #32
+ 417 002e 1E48     		ldr	r0, .L31+8
+ 418 0030 FFF7FEFF 		bl	HAL_GPIO_WritePin
+ 419              	.LVL35:
+ 420              	.L27:
+ 181:Drivers/calc_odometry/Src/odometry.c **** 	}
+ 182:Drivers/calc_odometry/Src/odometry.c **** 	else  { // Right wheel reverse
+ 183:Drivers/calc_odometry/Src/odometry.c **** 		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
+ 184:Drivers/calc_odometry/Src/odometry.c **** 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_5, GPIO_PIN_RESET);
+ 185:Drivers/calc_odometry/Src/odometry.c **** 	}
+ 186:Drivers/calc_odometry/Src/odometry.c **** 
+ 187:Drivers/calc_odometry/Src/odometry.c **** 	if (pwmLeftReq > 0) { // Left wheel forward
+ 421              		.loc 1 187 2 view .LVU92
+ 422              		.loc 1 187 5 is_stmt 0 view .LVU93
+ 423 0034 002D     		cmp	r5, #0
+ 424 0036 24DD     		ble	.L28
+ 188:Drivers/calc_odometry/Src/odometry.c **** 	   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+ 425              		.loc 1 188 5 is_stmt 1 view .LVU94
+ 426 0038 1B4E     		ldr	r6, .L31+8
+ 427 003a 0122     		movs	r2, #1
+ 428 003c 4FF40051 		mov	r1, #8192
+ 429 0040 3046     		mov	r0, r6
+ 430 0042 FFF7FEFF 		bl	HAL_GPIO_WritePin
+ 431              	.LVL36:
+ 189:Drivers/calc_odometry/Src/odometry.c **** 	   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_15, GPIO_PIN_RESET);
+ 432              		.loc 1 189 5 view .LVU95
+ 433 0046 0022     		movs	r2, #0
+ 434 0048 4FF40041 		mov	r1, #32768
+ 435 004c 3046     		mov	r0, r6
+ 436 004e FFF7FEFF 		bl	HAL_GPIO_WritePin
+ 437              	.LVL37:
+ 438              	.L29:
+ 190:Drivers/calc_odometry/Src/odometry.c **** 	} else { // Left wheel reverse
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 12
+
+
+ 191:Drivers/calc_odometry/Src/odometry.c **** 	   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_15, GPIO_PIN_SET);
+ 192:Drivers/calc_odometry/Src/odometry.c **** 	   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+ 193:Drivers/calc_odometry/Src/odometry.c **** 	}
+ 194:Drivers/calc_odometry/Src/odometry.c **** 
+ 195:Drivers/calc_odometry/Src/odometry.c **** 	__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, abs(pwmLeftReq));
+ 439              		.loc 1 195 2 view .LVU96
+ 440 0052 164B     		ldr	r3, .L31+12
+ 441 0054 1B68     		ldr	r3, [r3]
+ 442 0056 002D     		cmp	r5, #0
+ 443 0058 B8BF     		it	lt
+ 444 005a 6D42     		rsblt	r5, r5, #0
+ 445              	.LVL38:
+ 446              		.loc 1 195 2 is_stmt 0 view .LVU97
+ 447 005c 9D63     		str	r5, [r3, #56]
+ 196:Drivers/calc_odometry/Src/odometry.c **** 	__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, abs(pwmRightReq));
+ 448              		.loc 1 196 2 is_stmt 1 view .LVU98
+ 449 005e 144B     		ldr	r3, .L31+16
+ 450 0060 1B68     		ldr	r3, [r3]
+ 451 0062 002C     		cmp	r4, #0
+ 452 0064 B8BF     		it	lt
+ 453 0066 6442     		rsblt	r4, r4, #0
+ 454              	.LVL39:
+ 455              		.loc 1 196 2 is_stmt 0 view .LVU99
+ 456 0068 5C63     		str	r4, [r3, #52]
+ 197:Drivers/calc_odometry/Src/odometry.c **** 
+ 198:Drivers/calc_odometry/Src/odometry.c **** }
+ 457              		.loc 1 198 1 view .LVU100
+ 458 006a 70BD     		pop	{r4, r5, r6, pc}
+ 459              	.LVL40:
+ 460              	.L26:
+ 183:Drivers/calc_odometry/Src/odometry.c **** 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_5, GPIO_PIN_RESET);
+ 461              		.loc 1 183 3 is_stmt 1 view .LVU101
+ 462 006c 0122     		movs	r2, #1
+ 463 006e 0221     		movs	r1, #2
+ 464 0070 0C48     		ldr	r0, .L31+4
+ 465 0072 FFF7FEFF 		bl	HAL_GPIO_WritePin
+ 466              	.LVL41:
+ 184:Drivers/calc_odometry/Src/odometry.c **** 	}
+ 467              		.loc 1 184 3 view .LVU102
+ 468 0076 0022     		movs	r2, #0
+ 469 0078 2021     		movs	r1, #32
+ 470 007a 0B48     		ldr	r0, .L31+8
+ 471 007c FFF7FEFF 		bl	HAL_GPIO_WritePin
+ 472              	.LVL42:
+ 473 0080 D8E7     		b	.L27
+ 474              	.L28:
+ 191:Drivers/calc_odometry/Src/odometry.c **** 	   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+ 475              		.loc 1 191 5 view .LVU103
+ 476 0082 094E     		ldr	r6, .L31+8
+ 477 0084 0122     		movs	r2, #1
+ 478 0086 4FF40041 		mov	r1, #32768
+ 479 008a 3046     		mov	r0, r6
+ 480 008c FFF7FEFF 		bl	HAL_GPIO_WritePin
+ 481              	.LVL43:
+ 192:Drivers/calc_odometry/Src/odometry.c **** 	}
+ 482              		.loc 1 192 5 view .LVU104
+ 483 0090 0022     		movs	r2, #0
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 13
+
+
+ 484 0092 4FF40051 		mov	r1, #8192
+ 485 0096 3046     		mov	r0, r6
+ 486 0098 FFF7FEFF 		bl	HAL_GPIO_WritePin
+ 487              	.LVL44:
+ 488 009c D9E7     		b	.L29
+ 489              	.L32:
+ 490 009e 00BF     		.align	2
+ 491              	.L31:
+ 492 00a0 00000000 		.word	.LANCHOR0
+ 493 00a4 00040240 		.word	1073873920
+ 494 00a8 00080240 		.word	1073874944
+ 495 00ac 00000000 		.word	htim3
+ 496 00b0 00000000 		.word	htim1
+ 497              		.cfi_endproc
+ 498              	.LFE140:
+ 500              		.section	.text.pid_compute,"ax",%progbits
+ 501              		.align	1
+ 502              		.global	pid_compute
+ 503              		.syntax unified
+ 504              		.thumb
+ 505              		.thumb_func
+ 507              	pid_compute:
+ 508              	.LVL45:
+ 509              	.LFB142:
+ 199:Drivers/calc_odometry/Src/odometry.c **** 
+ 200:Drivers/calc_odometry/Src/odometry.c **** void run_step(odometry_ctx_t *ctx, PID_CONTROL_t *ctx_pid) {
+ 201:Drivers/calc_odometry/Src/odometry.c **** 
+ 202:Drivers/calc_odometry/Src/odometry.c **** 	calc_angular_vel(ctx, ctx_pid);
+ 203:Drivers/calc_odometry/Src/odometry.c **** 
+ 204:Drivers/calc_odometry/Src/odometry.c **** 	calc_wheels_speed(ctx, ctx_pid);
+ 205:Drivers/calc_odometry/Src/odometry.c **** 
+ 206:Drivers/calc_odometry/Src/odometry.c **** 	if (ctx->vel_r > 0) {
+ 207:Drivers/calc_odometry/Src/odometry.c **** 		__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, (int) ctx->vel_r);
+ 208:Drivers/calc_odometry/Src/odometry.c **** 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+ 209:Drivers/calc_odometry/Src/odometry.c **** 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_15, GPIO_PIN_RESET);
+ 210:Drivers/calc_odometry/Src/odometry.c **** 	} else {
+ 211:Drivers/calc_odometry/Src/odometry.c **** 		__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, (int) abs(ctx->vel_r));
+ 212:Drivers/calc_odometry/Src/odometry.c **** 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_15, GPIO_PIN_SET);
+ 213:Drivers/calc_odometry/Src/odometry.c **** 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+ 214:Drivers/calc_odometry/Src/odometry.c **** 	}
+ 215:Drivers/calc_odometry/Src/odometry.c **** 
+ 216:Drivers/calc_odometry/Src/odometry.c **** 	if (ctx->vel_l > 0) {
+ 217:Drivers/calc_odometry/Src/odometry.c **** 		__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, (int) abs(ctx->vel_l) );
+ 218:Drivers/calc_odometry/Src/odometry.c **** 		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET);
+ 219:Drivers/calc_odometry/Src/odometry.c **** 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_5, GPIO_PIN_SET);
+ 220:Drivers/calc_odometry/Src/odometry.c **** 
+ 221:Drivers/calc_odometry/Src/odometry.c **** 	} else {
+ 222:Drivers/calc_odometry/Src/odometry.c **** 		__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, (int) abs(ctx->vel_l) );
+ 223:Drivers/calc_odometry/Src/odometry.c **** 		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
+ 224:Drivers/calc_odometry/Src/odometry.c **** 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_5, GPIO_PIN_RESET);
+ 225:Drivers/calc_odometry/Src/odometry.c **** 	}
+ 226:Drivers/calc_odometry/Src/odometry.c **** 
+ 227:Drivers/calc_odometry/Src/odometry.c **** };
+ 228:Drivers/calc_odometry/Src/odometry.c **** 
+ 229:Drivers/calc_odometry/Src/odometry.c **** void pid_compute(odometry_ctx_t *ctx, PID_CONTROL_t *PID_Ctrl, float g_dPIDError)
+ 230:Drivers/calc_odometry/Src/odometry.c **** {
+ 510              		.loc 1 230 1 view -0
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 14
+
+
+ 511              		.cfi_startproc
+ 512              		@ args = 0, pretend = 0, frame = 0
+ 513              		@ frame_needed = 0, uses_anonymous_args = 0
+ 514              		@ link register save eliminated.
+ 231:Drivers/calc_odometry/Src/odometry.c **** 	float dP = 0, dI = 0, dD = 0;
+ 515              		.loc 1 231 2 view .LVU106
+ 232:Drivers/calc_odometry/Src/odometry.c **** 	float TS = ctx->dt;
+ 516              		.loc 1 232 2 view .LVU107
+ 517              		.loc 1 232 8 is_stmt 0 view .LVU108
+ 518 0000 D0ED035A 		vldr.32	s11, [r0, #12]
+ 519              	.LVL46:
+ 233:Drivers/calc_odometry/Src/odometry.c **** 
+ 234:Drivers/calc_odometry/Src/odometry.c **** 	dP = PID_Ctrl->dKp  * g_dPIDError;
+ 520              		.loc 1 234 2 is_stmt 1 view .LVU109
+ 521              		.loc 1 234 15 is_stmt 0 view .LVU110
+ 522 0004 D1ED007A 		vldr.32	s15, [r1]
+ 523              		.loc 1 234 5 view .LVU111
+ 524 0008 67EE807A 		vmul.f32	s15, s15, s0
+ 525              	.LVL47:
+ 235:Drivers/calc_odometry/Src/odometry.c **** 	PID_Ctrl->dIntergral += g_dPIDError;
+ 526              		.loc 1 235 2 is_stmt 1 view .LVU112
+ 527              		.loc 1 235 23 is_stmt 0 view .LVU113
+ 528 000c 91ED047A 		vldr.32	s14, [r1, #16]
+ 529 0010 30EE077A 		vadd.f32	s14, s0, s14
+ 530 0014 81ED047A 		vstr.32	s14, [r1, #16]
+ 236:Drivers/calc_odometry/Src/odometry.c **** 	dI = PID_Ctrl->dKi  * TS / 2 * PID_Ctrl->dIntergral;
+ 531              		.loc 1 236 2 is_stmt 1 view .LVU114
+ 532              		.loc 1 236 15 is_stmt 0 view .LVU115
+ 533 0018 D1ED016A 		vldr.32	s13, [r1, #4]
+ 534              		.loc 1 236 22 view .LVU116
+ 535 001c 66EEA56A 		vmul.f32	s13, s13, s11
+ 536              		.loc 1 236 27 view .LVU117
+ 537 0020 B6EE006A 		vmov.f32	s12, #5.0e-1
+ 538 0024 66EE866A 		vmul.f32	s13, s13, s12
+ 539              		.loc 1 236 5 view .LVU118
+ 540 0028 27EE267A 		vmul.f32	s14, s14, s13
+ 541              	.LVL48:
+ 237:Drivers/calc_odometry/Src/odometry.c **** 	dD = PID_Ctrl->dKd  * (g_dPIDError - PID_Ctrl->dErrorTerm) / TS;
+ 542              		.loc 1 237 2 is_stmt 1 view .LVU119
+ 543              		.loc 1 237 15 is_stmt 0 view .LVU120
+ 544 002c D1ED026A 		vldr.32	s13, [r1, #8]
+ 545              		.loc 1 237 47 view .LVU121
+ 546 0030 91ED036A 		vldr.32	s12, [r1, #12]
+ 547              		.loc 1 237 37 view .LVU122
+ 548 0034 30EE466A 		vsub.f32	s12, s0, s12
+ 549              		.loc 1 237 22 view .LVU123
+ 550 0038 66EE866A 		vmul.f32	s13, s13, s12
+ 551              		.loc 1 237 5 view .LVU124
+ 552 003c 86EEA56A 		vdiv.f32	s12, s13, s11
+ 553              	.LVL49:
+ 238:Drivers/calc_odometry/Src/odometry.c **** 	PID_Ctrl->dErrorTerm = g_dPIDError;
+ 554              		.loc 1 238 2 is_stmt 1 view .LVU125
+ 555              		.loc 1 238 23 is_stmt 0 view .LVU126
+ 556 0040 81ED030A 		vstr.32	s0, [r1, #12]
+ 239:Drivers/calc_odometry/Src/odometry.c **** 	PID_Ctrl->u = dP + dI + dD;
+ 557              		.loc 1 239 2 is_stmt 1 view .LVU127
+ 558              		.loc 1 239 19 is_stmt 0 view .LVU128
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 15
+
+
+ 559 0044 77EE877A 		vadd.f32	s15, s15, s14
+ 560              	.LVL50:
+ 561              		.loc 1 239 24 view .LVU129
+ 562 0048 77EE867A 		vadd.f32	s15, s15, s12
+ 563              		.loc 1 239 14 view .LVU130
+ 564 004c C1ED057A 		vstr.32	s15, [r1, #20]
+ 240:Drivers/calc_odometry/Src/odometry.c **** 
+ 241:Drivers/calc_odometry/Src/odometry.c **** }
+ 565              		.loc 1 241 1 view .LVU131
+ 566 0050 7047     		bx	lr
+ 567              		.cfi_endproc
+ 568              	.LFE142:
+ 570              		.section	.text.calc_angular_vel,"ax",%progbits
+ 571              		.align	1
+ 572              		.global	calc_angular_vel
+ 573              		.syntax unified
+ 574              		.thumb
+ 575              		.thumb_func
+ 577              	calc_angular_vel:
+ 578              	.LVL51:
+ 579              	.LFB143:
+ 242:Drivers/calc_odometry/Src/odometry.c **** 
+ 243:Drivers/calc_odometry/Src/odometry.c **** void calc_angular_vel(odometry_ctx_t *ctx, PID_CONTROL_t *ctx_pid) {
+ 580              		.loc 1 243 68 is_stmt 1 view -0
+ 581              		.cfi_startproc
+ 582              		@ args = 0, pretend = 0, frame = 0
+ 583              		@ frame_needed = 0, uses_anonymous_args = 0
+ 584              		@ link register save eliminated.
+ 244:Drivers/calc_odometry/Src/odometry.c **** //	float delta_x =  ctx->x_goal - ctx->x;
+ 245:Drivers/calc_odometry/Src/odometry.c **** //	float delta_y = ctx->y_goal - ctx->y;
+ 246:Drivers/calc_odometry/Src/odometry.c **** //
+ 247:Drivers/calc_odometry/Src/odometry.c **** //	if (fabs(delta_x) < 0.03 && fabs(delta_y) < 0.03) {
+ 248:Drivers/calc_odometry/Src/odometry.c **** //		ctx->vel_r = 0;
+ 249:Drivers/calc_odometry/Src/odometry.c **** //		ctx->desired_v = 0;
+ 250:Drivers/calc_odometry/Src/odometry.c **** //		ctx->vel_l = 0;
+ 251:Drivers/calc_odometry/Src/odometry.c **** //		ctx->delay_counts++;
+ 252:Drivers/calc_odometry/Src/odometry.c **** //
+ 253:Drivers/calc_odometry/Src/odometry.c **** //		if (ctx->delay_counts < 100 ) {
+ 254:Drivers/calc_odometry/Src/odometry.c **** //			return;
+ 255:Drivers/calc_odometry/Src/odometry.c **** //		}
+ 256:Drivers/calc_odometry/Src/odometry.c **** //
+ 257:Drivers/calc_odometry/Src/odometry.c **** //		if (ctx->next_goal == 6 ) {
+ 258:Drivers/calc_odometry/Src/odometry.c **** //			return;
+ 259:Drivers/calc_odometry/Src/odometry.c **** //		}
+ 260:Drivers/calc_odometry/Src/odometry.c **** //
+ 261:Drivers/calc_odometry/Src/odometry.c **** //
+ 262:Drivers/calc_odometry/Src/odometry.c **** //		ctx->x_goal = ctx->goals[ctx->next_goal];
+ 263:Drivers/calc_odometry/Src/odometry.c **** //		ctx->y_goal = ctx->goals[ctx->next_goal + 1];
+ 264:Drivers/calc_odometry/Src/odometry.c **** //		ctx->next_goal = ctx->next_goal + 2;
+ 265:Drivers/calc_odometry/Src/odometry.c **** //		ctx->delay_counts = 0;
+ 266:Drivers/calc_odometry/Src/odometry.c **** //		ctx->desired_v = 1.5;
+ 267:Drivers/calc_odometry/Src/odometry.c **** //		ctx_pid->dErrorTerm = 0;
+ 268:Drivers/calc_odometry/Src/odometry.c **** //		ctx_pid->dIntergral = 0;
+ 269:Drivers/calc_odometry/Src/odometry.c **** //		ctx_pid->u = 0;
+ 270:Drivers/calc_odometry/Src/odometry.c **** //
+ 271:Drivers/calc_odometry/Src/odometry.c **** //		return;
+ 272:Drivers/calc_odometry/Src/odometry.c **** //	}
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 16
+
+
+ 273:Drivers/calc_odometry/Src/odometry.c **** //
+ 274:Drivers/calc_odometry/Src/odometry.c **** //	float delta_theta = atan2(delta_y, delta_x) - ctx->theta;
+ 275:Drivers/calc_odometry/Src/odometry.c **** //	delta_theta = atan2(sin(delta_theta), cos(delta_theta));
+ 276:Drivers/calc_odometry/Src/odometry.c **** //
+ 277:Drivers/calc_odometry/Src/odometry.c **** //	pid_compute(ctx, ctx_pid, delta_theta);
+ 278:Drivers/calc_odometry/Src/odometry.c **** }
+ 585              		.loc 1 278 1 view .LVU133
+ 586 0000 7047     		bx	lr
+ 587              		.cfi_endproc
+ 588              	.LFE143:
+ 590              		.section	.text.calc_wheels_speed,"ax",%progbits
+ 591              		.align	1
+ 592              		.global	calc_wheels_speed
+ 593              		.syntax unified
+ 594              		.thumb
+ 595              		.thumb_func
+ 597              	calc_wheels_speed:
+ 598              	.LVL52:
+ 599              	.LFB144:
+ 279:Drivers/calc_odometry/Src/odometry.c **** 
+ 280:Drivers/calc_odometry/Src/odometry.c **** void calc_wheels_speed(odometry_ctx_t *ctx, PID_CONTROL_t *ctx_pid) {
+ 600              		.loc 1 280 69 view -0
+ 601              		.cfi_startproc
+ 602              		@ args = 0, pretend = 0, frame = 0
+ 603              		@ frame_needed = 0, uses_anonymous_args = 0
+ 604              		@ link register save eliminated.
+ 281:Drivers/calc_odometry/Src/odometry.c **** 	float v = ctx->desired_v;
+ 605              		.loc 1 281 2 view .LVU135
+ 606              		.loc 1 281 8 is_stmt 0 view .LVU136
+ 607 0000 D0ED077A 		vldr.32	s15, [r0, #28]
+ 608              	.LVL53:
+ 282:Drivers/calc_odometry/Src/odometry.c **** 	float w = ctx_pid->u;
+ 609              		.loc 1 282 2 is_stmt 1 view .LVU137
+ 610              		.loc 1 282 8 is_stmt 0 view .LVU138
+ 611 0004 91ED057A 		vldr.32	s14, [r1, #20]
+ 612              	.LVL54:
+ 283:Drivers/calc_odometry/Src/odometry.c **** 
+ 284:Drivers/calc_odometry/Src/odometry.c **** 	ctx->vel_l = (2 * v + w * L) / (2 * R);
+ 613              		.loc 1 284 2 is_stmt 1 view .LVU139
+ 614              		.loc 1 284 18 is_stmt 0 view .LVU140
+ 615 0008 77EEA77A 		vadd.f32	s15, s15, s15
+ 616              	.LVL55:
+ 617              		.loc 1 284 26 view .LVU141
+ 618 000c DFED096A 		vldr.32	s13, .L36
+ 619 0010 27EE267A 		vmul.f32	s14, s14, s13
+ 620              	.LVL56:
+ 621              		.loc 1 284 22 view .LVU142
+ 622 0014 77EE875A 		vadd.f32	s11, s15, s14
+ 623              		.loc 1 284 31 view .LVU143
+ 624 0018 DFED076A 		vldr.32	s13, .L36+4
+ 625 001c 85EEA66A 		vdiv.f32	s12, s11, s13
+ 626              		.loc 1 284 13 view .LVU144
+ 627 0020 80ED066A 		vstr.32	s12, [r0, #24]
+ 628              	.LVL57:
+ 285:Drivers/calc_odometry/Src/odometry.c **** 	ctx->vel_r = (2 * v - w * L) / (2 * R);
+ 629              		.loc 1 285 2 is_stmt 1 view .LVU145
+ 630              		.loc 1 285 22 is_stmt 0 view .LVU146
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 17
+
+
+ 631 0024 77EEC77A 		vsub.f32	s15, s15, s14
+ 632              		.loc 1 285 31 view .LVU147
+ 633 0028 87EEA67A 		vdiv.f32	s14, s15, s13
+ 634              		.loc 1 285 13 view .LVU148
+ 635 002c 80ED057A 		vstr.32	s14, [r0, #20]
+ 286:Drivers/calc_odometry/Src/odometry.c **** }
+ 636              		.loc 1 286 1 view .LVU149
+ 637 0030 7047     		bx	lr
+ 638              	.L37:
+ 639 0032 00BF     		.align	2
+ 640              	.L36:
+ 641 0034 A4703D3E 		.word	1044213924
+ 642 0038 96438B3D 		.word	1032536982
+ 643              		.cfi_endproc
+ 644              	.LFE144:
+ 646              		.section	.text.run_step,"ax",%progbits
+ 647              		.align	1
+ 648              		.global	run_step
+ 649              		.syntax unified
+ 650              		.thumb
+ 651              		.thumb_func
+ 653              	run_step:
+ 654              	.LVL58:
+ 655              	.LFB141:
+ 200:Drivers/calc_odometry/Src/odometry.c **** 
+ 656              		.loc 1 200 60 is_stmt 1 view -0
+ 657              		.cfi_startproc
+ 658              		@ args = 0, pretend = 0, frame = 0
+ 659              		@ frame_needed = 0, uses_anonymous_args = 0
+ 200:Drivers/calc_odometry/Src/odometry.c **** 
+ 660              		.loc 1 200 60 is_stmt 0 view .LVU151
+ 661 0000 38B5     		push	{r3, r4, r5, lr}
+ 662              	.LCFI5:
+ 663              		.cfi_def_cfa_offset 16
+ 664              		.cfi_offset 3, -16
+ 665              		.cfi_offset 4, -12
+ 666              		.cfi_offset 5, -8
+ 667              		.cfi_offset 14, -4
+ 668 0002 0446     		mov	r4, r0
+ 202:Drivers/calc_odometry/Src/odometry.c **** 
+ 669              		.loc 1 202 2 is_stmt 1 view .LVU152
+ 204:Drivers/calc_odometry/Src/odometry.c **** 
+ 670              		.loc 1 204 2 view .LVU153
+ 671 0004 FFF7FEFF 		bl	calc_wheels_speed
+ 672              	.LVL59:
+ 206:Drivers/calc_odometry/Src/odometry.c **** 		__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, (int) ctx->vel_r);
+ 673              		.loc 1 206 2 view .LVU154
+ 206:Drivers/calc_odometry/Src/odometry.c **** 		__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, (int) ctx->vel_r);
+ 674              		.loc 1 206 9 is_stmt 0 view .LVU155
+ 675 0008 D4ED057A 		vldr.32	s15, [r4, #20]
+ 206:Drivers/calc_odometry/Src/odometry.c **** 		__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, (int) ctx->vel_r);
+ 676              		.loc 1 206 5 view .LVU156
+ 677 000c F5EEC07A 		vcmpe.f32	s15, #0
+ 678 0010 F1EE10FA 		vmrs	APSR_nzcv, FPSCR
+ 679 0014 2EDD     		ble	.L47
+ 207:Drivers/calc_odometry/Src/odometry.c **** 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+ 680              		.loc 1 207 3 is_stmt 1 view .LVU157
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 18
+
+
+ 681 0016 2E4B     		ldr	r3, .L50
+ 682 0018 1B68     		ldr	r3, [r3]
+ 683 001a FDEEE77A 		vcvt.s32.f32	s15, s15
+ 684 001e C3ED0E7A 		vstr.32	s15, [r3, #56]	@ int
+ 208:Drivers/calc_odometry/Src/odometry.c **** 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_15, GPIO_PIN_RESET);
+ 685              		.loc 1 208 3 view .LVU158
+ 686 0022 2C4D     		ldr	r5, .L50+4
+ 687 0024 0122     		movs	r2, #1
+ 688 0026 4FF40051 		mov	r1, #8192
+ 689 002a 2846     		mov	r0, r5
+ 690 002c FFF7FEFF 		bl	HAL_GPIO_WritePin
+ 691              	.LVL60:
+ 209:Drivers/calc_odometry/Src/odometry.c **** 	} else {
+ 692              		.loc 1 209 3 view .LVU159
+ 693 0030 0022     		movs	r2, #0
+ 694 0032 4FF40041 		mov	r1, #32768
+ 695 0036 2846     		mov	r0, r5
+ 696 0038 FFF7FEFF 		bl	HAL_GPIO_WritePin
+ 697              	.LVL61:
+ 698              	.L41:
+ 216:Drivers/calc_odometry/Src/odometry.c **** 		__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, (int) abs(ctx->vel_l) );
+ 699              		.loc 1 216 2 view .LVU160
+ 216:Drivers/calc_odometry/Src/odometry.c **** 		__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, (int) abs(ctx->vel_l) );
+ 700              		.loc 1 216 9 is_stmt 0 view .LVU161
+ 701 003c D4ED067A 		vldr.32	s15, [r4, #24]
+ 216:Drivers/calc_odometry/Src/odometry.c **** 		__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, (int) abs(ctx->vel_l) );
+ 702              		.loc 1 216 5 view .LVU162
+ 703 0040 F5EEC07A 		vcmpe.f32	s15, #0
+ 704 0044 F1EE10FA 		vmrs	APSR_nzcv, FPSCR
+ 705 0048 2CDD     		ble	.L48
+ 217:Drivers/calc_odometry/Src/odometry.c **** 		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET);
+ 706              		.loc 1 217 3 is_stmt 1 view .LVU163
+ 707 004a 234B     		ldr	r3, .L50+8
+ 708 004c 1A68     		ldr	r2, [r3]
+ 709 004e FDEEE77A 		vcvt.s32.f32	s15, s15
+ 710 0052 17EE903A 		vmov	r3, s15	@ int
+ 711 0056 002B     		cmp	r3, #0
+ 712 0058 B8BF     		it	lt
+ 713 005a 5B42     		rsblt	r3, r3, #0
+ 714 005c 5363     		str	r3, [r2, #52]
+ 218:Drivers/calc_odometry/Src/odometry.c **** 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_5, GPIO_PIN_SET);
+ 715              		.loc 1 218 3 view .LVU164
+ 716 005e 0022     		movs	r2, #0
+ 717 0060 0221     		movs	r1, #2
+ 718 0062 1E48     		ldr	r0, .L50+12
+ 719 0064 FFF7FEFF 		bl	HAL_GPIO_WritePin
+ 720              	.LVL62:
+ 219:Drivers/calc_odometry/Src/odometry.c **** 
+ 721              		.loc 1 219 3 view .LVU165
+ 722 0068 0122     		movs	r2, #1
+ 723 006a 2021     		movs	r1, #32
+ 724 006c 1948     		ldr	r0, .L50+4
+ 725 006e FFF7FEFF 		bl	HAL_GPIO_WritePin
+ 726              	.LVL63:
+ 727              	.L38:
+ 227:Drivers/calc_odometry/Src/odometry.c **** 
+ 728              		.loc 1 227 1 is_stmt 0 view .LVU166
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 19
+
+
+ 729 0072 38BD     		pop	{r3, r4, r5, pc}
+ 730              	.LVL64:
+ 731              	.L47:
+ 211:Drivers/calc_odometry/Src/odometry.c **** 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_15, GPIO_PIN_SET);
+ 732              		.loc 1 211 3 is_stmt 1 view .LVU167
+ 733 0074 164B     		ldr	r3, .L50
+ 734 0076 1A68     		ldr	r2, [r3]
+ 735 0078 FDEEE77A 		vcvt.s32.f32	s15, s15
+ 736 007c 17EE903A 		vmov	r3, s15	@ int
+ 737 0080 002B     		cmp	r3, #0
+ 738 0082 B8BF     		it	lt
+ 739 0084 5B42     		rsblt	r3, r3, #0
+ 740 0086 9363     		str	r3, [r2, #56]
+ 212:Drivers/calc_odometry/Src/odometry.c **** 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+ 741              		.loc 1 212 3 view .LVU168
+ 742 0088 124D     		ldr	r5, .L50+4
+ 743 008a 0122     		movs	r2, #1
+ 744 008c 4FF40041 		mov	r1, #32768
+ 745 0090 2846     		mov	r0, r5
+ 746 0092 FFF7FEFF 		bl	HAL_GPIO_WritePin
+ 747              	.LVL65:
+ 213:Drivers/calc_odometry/Src/odometry.c **** 	}
+ 748              		.loc 1 213 3 view .LVU169
+ 749 0096 0022     		movs	r2, #0
+ 750 0098 4FF40051 		mov	r1, #8192
+ 751 009c 2846     		mov	r0, r5
+ 752 009e FFF7FEFF 		bl	HAL_GPIO_WritePin
+ 753              	.LVL66:
+ 754 00a2 CBE7     		b	.L41
+ 755              	.L48:
+ 222:Drivers/calc_odometry/Src/odometry.c **** 		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
+ 756              		.loc 1 222 3 view .LVU170
+ 757 00a4 0C4B     		ldr	r3, .L50+8
+ 758 00a6 1A68     		ldr	r2, [r3]
+ 759 00a8 FDEEE77A 		vcvt.s32.f32	s15, s15
+ 760 00ac 17EE903A 		vmov	r3, s15	@ int
+ 761 00b0 002B     		cmp	r3, #0
+ 762 00b2 B8BF     		it	lt
+ 763 00b4 5B42     		rsblt	r3, r3, #0
+ 764 00b6 5363     		str	r3, [r2, #52]
+ 223:Drivers/calc_odometry/Src/odometry.c **** 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_5, GPIO_PIN_RESET);
+ 765              		.loc 1 223 3 view .LVU171
+ 766 00b8 0122     		movs	r2, #1
+ 767 00ba 0221     		movs	r1, #2
+ 768 00bc 0748     		ldr	r0, .L50+12
+ 769 00be FFF7FEFF 		bl	HAL_GPIO_WritePin
+ 770              	.LVL67:
+ 224:Drivers/calc_odometry/Src/odometry.c **** 	}
+ 771              		.loc 1 224 3 view .LVU172
+ 772 00c2 0022     		movs	r2, #0
+ 773 00c4 2021     		movs	r1, #32
+ 774 00c6 0348     		ldr	r0, .L50+4
+ 775 00c8 FFF7FEFF 		bl	HAL_GPIO_WritePin
+ 776              	.LVL68:
+ 227:Drivers/calc_odometry/Src/odometry.c **** 
+ 777              		.loc 1 227 1 is_stmt 0 view .LVU173
+ 778 00cc D1E7     		b	.L38
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 20
+
+
+ 779              	.L51:
+ 780 00ce 00BF     		.align	2
+ 781              	.L50:
+ 782 00d0 00000000 		.word	htim3
+ 783 00d4 00080240 		.word	1073874944
+ 784 00d8 00000000 		.word	htim1
+ 785 00dc 00040240 		.word	1073873920
+ 786              		.cfi_endproc
+ 787              	.LFE141:
+ 789              		.section	.text.calc_theta,"ax",%progbits
+ 790              		.align	1
+ 791              		.global	calc_theta
+ 792              		.syntax unified
+ 793              		.thumb
+ 794              		.thumb_func
+ 796              	calc_theta:
+ 797              	.LVL69:
+ 798              	.LFB145:
+ 287:Drivers/calc_odometry/Src/odometry.c **** 
+ 288:Drivers/calc_odometry/Src/odometry.c **** float calc_theta(float yaw, float prev_yaw) {
+ 799              		.loc 1 288 45 is_stmt 1 view -0
+ 800              		.cfi_startproc
+ 801              		@ args = 0, pretend = 0, frame = 0
+ 802              		@ frame_needed = 0, uses_anonymous_args = 0
+ 803              		@ link register save eliminated.
+ 289:Drivers/calc_odometry/Src/odometry.c **** 	float rate = (yaw - prev_yaw);
+ 804              		.loc 1 289 2 view .LVU175
+ 805              		.loc 1 289 8 is_stmt 0 view .LVU176
+ 806 0000 30EE600A 		vsub.f32	s0, s0, s1
+ 807              	.LVL70:
+ 290:Drivers/calc_odometry/Src/odometry.c **** 
+ 291:Drivers/calc_odometry/Src/odometry.c **** 	if (rate >= PI) {
+ 808              		.loc 1 291 2 is_stmt 1 view .LVU177
+ 809              		.loc 1 291 5 is_stmt 0 view .LVU178
+ 810 0004 DFED0B7A 		vldr.32	s15, .L60
+ 811 0008 B4EEE70A 		vcmpe.f32	s0, s15
+ 812 000c F1EE10FA 		vmrs	APSR_nzcv, FPSCR
+ 813 0010 04DB     		blt	.L59
+ 292:Drivers/calc_odometry/Src/odometry.c **** 		rate = rate - 2*PI;
+ 814              		.loc 1 292 3 is_stmt 1 view .LVU179
+ 815              		.loc 1 292 8 is_stmt 0 view .LVU180
+ 816 0012 DFED097A 		vldr.32	s15, .L60+4
+ 817 0016 30EE670A 		vsub.f32	s0, s0, s15
+ 818              	.LVL71:
+ 819              		.loc 1 292 8 view .LVU181
+ 820 001a 7047     		bx	lr
+ 821              	.L59:
+ 293:Drivers/calc_odometry/Src/odometry.c **** 	} else if (rate <= -PI ) {
+ 822              		.loc 1 293 9 is_stmt 1 view .LVU182
+ 823              		.loc 1 293 12 is_stmt 0 view .LVU183
+ 824 001c DFED077A 		vldr.32	s15, .L60+8
+ 825 0020 B4EEE70A 		vcmpe.f32	s0, s15
+ 826 0024 F1EE10FA 		vmrs	APSR_nzcv, FPSCR
+ 827 0028 03D8     		bhi	.L52
+ 294:Drivers/calc_odometry/Src/odometry.c **** 		rate = rate + 2*PI;
+ 828              		.loc 1 294 3 is_stmt 1 view .LVU184
+ 829              		.loc 1 294 8 is_stmt 0 view .LVU185
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 21
+
+
+ 830 002a DFED037A 		vldr.32	s15, .L60+4
+ 831 002e 30EE270A 		vadd.f32	s0, s0, s15
+ 832              	.LVL72:
+ 295:Drivers/calc_odometry/Src/odometry.c **** 	}
+ 296:Drivers/calc_odometry/Src/odometry.c **** 
+ 297:Drivers/calc_odometry/Src/odometry.c **** 	return rate;
+ 833              		.loc 1 297 2 is_stmt 1 view .LVU186
+ 834              	.L52:
+ 298:Drivers/calc_odometry/Src/odometry.c **** }
+ 835              		.loc 1 298 1 is_stmt 0 view .LVU187
+ 836 0032 7047     		bx	lr
+ 837              	.L61:
+ 838              		.align	2
+ 839              	.L60:
+ 840 0034 DB0F4940 		.word	1078530011
+ 841 0038 DB0FC940 		.word	1086918619
+ 842 003c DB0F49C0 		.word	-1068953637
+ 843              		.cfi_endproc
+ 844              	.LFE145:
+ 846              		.global	__aeabi_f2d
+ 847              		.section	.text.update_step,"ax",%progbits
+ 848              		.align	1
+ 849              		.global	update_step
+ 850              		.syntax unified
+ 851              		.thumb
+ 852              		.thumb_func
+ 854              	update_step:
+ 855              	.LFB138:
+ 106:Drivers/calc_odometry/Src/odometry.c **** 	odometry_ctx_t *ctx  = &dev_ctx_odometry;
+ 856              		.loc 1 106 1 is_stmt 1 view -0
+ 857              		.cfi_startproc
+ 858              		@ args = 0, pretend = 0, frame = 0
+ 859              		@ frame_needed = 0, uses_anonymous_args = 0
+ 860 0000 10B5     		push	{r4, lr}
+ 861              	.LCFI6:
+ 862              		.cfi_def_cfa_offset 8
+ 863              		.cfi_offset 4, -8
+ 864              		.cfi_offset 14, -4
+ 865 0002 2DED048B 		vpush.64	{d8, d9}
+ 866              	.LCFI7:
+ 867              		.cfi_def_cfa_offset 24
+ 868              		.cfi_offset 80, -24
+ 869              		.cfi_offset 81, -20
+ 870              		.cfi_offset 82, -16
+ 871              		.cfi_offset 83, -12
+ 107:Drivers/calc_odometry/Src/odometry.c **** 
+ 872              		.loc 1 107 2 view .LVU189
+ 873              	.LVL73:
+ 109:Drivers/calc_odometry/Src/odometry.c **** 	float delta_ticks_right = ((int32_t) TIM2->CNT - 32768);
+ 874              		.loc 1 109 2 view .LVU190
+ 109:Drivers/calc_odometry/Src/odometry.c **** 	float delta_ticks_right = ((int32_t) TIM2->CNT - 32768);
+ 875              		.loc 1 109 42 is_stmt 0 view .LVU191
+ 876 0006 404B     		ldr	r3, .L64+16
+ 877 0008 586A     		ldr	r0, [r3, #36]
+ 109:Drivers/calc_odometry/Src/odometry.c **** 	float delta_ticks_right = ((int32_t) TIM2->CNT - 32768);
+ 878              		.loc 1 109 48 view .LVU192
+ 879 000a A0F50040 		sub	r0, r0, #32768
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 22
+
+
+ 880              	.LVL74:
+ 110:Drivers/calc_odometry/Src/odometry.c **** 
+ 881              		.loc 1 110 2 is_stmt 1 view .LVU193
+ 110:Drivers/calc_odometry/Src/odometry.c **** 
+ 882              		.loc 1 110 43 is_stmt 0 view .LVU194
+ 883 000e 4FF08043 		mov	r3, #1073741824
+ 884 0012 5B6A     		ldr	r3, [r3, #36]
+ 110:Drivers/calc_odometry/Src/odometry.c **** 
+ 885              		.loc 1 110 49 view .LVU195
+ 886 0014 A3F50043 		sub	r3, r3, #32768
+ 110:Drivers/calc_odometry/Src/odometry.c **** 
+ 887              		.loc 1 110 8 view .LVU196
+ 888 0018 07EE903A 		vmov	s15, r3	@ int
+ 889 001c F8EEE78A 		vcvt.f32.s32	s17, s15
+ 890              	.LVL75:
+ 112:Drivers/calc_odometry/Src/odometry.c **** 	  __HAL_TIM_SetCounter(&htim2, 32768);
+ 891              		.loc 1 112 4 is_stmt 1 view .LVU197
+ 892 0020 3A4B     		ldr	r3, .L64+20
+ 893 0022 1A68     		ldr	r2, [r3]
+ 894 0024 4FF40043 		mov	r3, #32768
+ 895 0028 5362     		str	r3, [r2, #36]
+ 113:Drivers/calc_odometry/Src/odometry.c **** 
+ 896              		.loc 1 113 4 view .LVU198
+ 897 002a 394A     		ldr	r2, .L64+24
+ 898 002c 1268     		ldr	r2, [r2]
+ 899 002e 5362     		str	r3, [r2, #36]
+ 115:Drivers/calc_odometry/Src/odometry.c **** 	float wr = delta_ticks_right / 1980.0 * 2.0 * PI;
+ 900              		.loc 1 115 2 view .LVU199
+ 115:Drivers/calc_odometry/Src/odometry.c **** 	float wr = delta_ticks_right / 1980.0 * 2.0 * PI;
+ 901              		.loc 1 115 30 is_stmt 0 view .LVU200
+ 902 0030 07EE900A 		vmov	s15, r0	@ int
+ 903 0034 F8EEE77A 		vcvt.f32.s32	s15, s15
+ 904              	.LVL76:
+ 115:Drivers/calc_odometry/Src/odometry.c **** 	float wr = delta_ticks_right / 1980.0 * 2.0 * PI;
+ 905              		.loc 1 115 30 view .LVU201
+ 906 0038 17EE900A 		vmov	r0, s15
+ 907 003c FFF7FEFF 		bl	__aeabi_f2d
+ 908              	.LVL77:
+ 115:Drivers/calc_odometry/Src/odometry.c **** 	float wr = delta_ticks_right / 1980.0 * 2.0 * PI;
+ 909              		.loc 1 115 30 view .LVU202
+ 910 0040 2DA3     		adr	r3, .L64
+ 911 0042 D3E90023 		ldrd	r2, [r3]
+ 912 0046 FFF7FEFF 		bl	__aeabi_ddiv
+ 913              	.LVL78:
+ 914 004a 0246     		mov	r2, r0
+ 915 004c 0B46     		mov	r3, r1
+ 115:Drivers/calc_odometry/Src/odometry.c **** 	float wr = delta_ticks_right / 1980.0 * 2.0 * PI;
+ 916              		.loc 1 115 39 view .LVU203
+ 917 004e FFF7FEFF 		bl	__aeabi_dadd
+ 918              	.LVL79:
+ 115:Drivers/calc_odometry/Src/odometry.c **** 	float wr = delta_ticks_right / 1980.0 * 2.0 * PI;
+ 919              		.loc 1 115 45 view .LVU204
+ 920 0052 2BA3     		adr	r3, .L64+8
+ 921 0054 D3E90023 		ldrd	r2, [r3]
+ 922 0058 FFF7FEFF 		bl	__aeabi_dmul
+ 923              	.LVL80:
+ 115:Drivers/calc_odometry/Src/odometry.c **** 	float wr = delta_ticks_right / 1980.0 * 2.0 * PI;
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 23
+
+
+ 924              		.loc 1 115 8 view .LVU205
+ 925 005c FFF7FEFF 		bl	__aeabi_d2f
+ 926              	.LVL81:
+ 927 0060 08EE100A 		vmov	s16, r0
+ 928              	.LVL82:
+ 116:Drivers/calc_odometry/Src/odometry.c **** 	float mTheta = calc_theta(yaw_9dof, ctx->init_theta);
+ 929              		.loc 1 116 2 is_stmt 1 view .LVU206
+ 116:Drivers/calc_odometry/Src/odometry.c **** 	float mTheta = calc_theta(yaw_9dof, ctx->init_theta);
+ 930              		.loc 1 116 31 is_stmt 0 view .LVU207
+ 931 0064 18EE900A 		vmov	r0, s17
+ 932              	.LVL83:
+ 116:Drivers/calc_odometry/Src/odometry.c **** 	float mTheta = calc_theta(yaw_9dof, ctx->init_theta);
+ 933              		.loc 1 116 31 view .LVU208
+ 934 0068 FFF7FEFF 		bl	__aeabi_f2d
+ 935              	.LVL84:
+ 936 006c 22A3     		adr	r3, .L64
+ 937 006e D3E90023 		ldrd	r2, [r3]
+ 938 0072 FFF7FEFF 		bl	__aeabi_ddiv
+ 939              	.LVL85:
+ 940 0076 0246     		mov	r2, r0
+ 941 0078 0B46     		mov	r3, r1
+ 116:Drivers/calc_odometry/Src/odometry.c **** 	float mTheta = calc_theta(yaw_9dof, ctx->init_theta);
+ 942              		.loc 1 116 40 view .LVU209
+ 943 007a FFF7FEFF 		bl	__aeabi_dadd
+ 944              	.LVL86:
+ 116:Drivers/calc_odometry/Src/odometry.c **** 	float mTheta = calc_theta(yaw_9dof, ctx->init_theta);
+ 945              		.loc 1 116 46 view .LVU210
+ 946 007e 20A3     		adr	r3, .L64+8
+ 947 0080 D3E90023 		ldrd	r2, [r3]
+ 948 0084 FFF7FEFF 		bl	__aeabi_dmul
+ 949              	.LVL87:
+ 116:Drivers/calc_odometry/Src/odometry.c **** 	float mTheta = calc_theta(yaw_9dof, ctx->init_theta);
+ 950              		.loc 1 116 8 view .LVU211
+ 951 0088 FFF7FEFF 		bl	__aeabi_d2f
+ 952              	.LVL88:
+ 953 008c 08EE900A 		vmov	s17, r0
+ 954              	.LVL89:
+ 117:Drivers/calc_odometry/Src/odometry.c **** 
+ 955              		.loc 1 117 2 is_stmt 1 view .LVU212
+ 117:Drivers/calc_odometry/Src/odometry.c **** 
+ 956              		.loc 1 117 17 is_stmt 0 view .LVU213
+ 957 0090 204C     		ldr	r4, .L64+28
+ 958 0092 D4ED040A 		vldr.32	s1, [r4, #16]
+ 959 0096 204B     		ldr	r3, .L64+32
+ 960 0098 93ED000A 		vldr.32	s0, [r3]
+ 961 009c FFF7FEFF 		bl	calc_theta
+ 962              	.LVL90:
+ 117:Drivers/calc_odometry/Src/odometry.c **** 
+ 963              		.loc 1 117 17 view .LVU214
+ 964 00a0 B0EE409A 		vmov.f32	s18, s0
+ 965              	.LVL91:
+ 119:Drivers/calc_odometry/Src/odometry.c **** 	float vr = wr*R;
+ 966              		.loc 1 119 2 is_stmt 1 view .LVU215
+ 119:Drivers/calc_odometry/Src/odometry.c **** 	float vr = wr*R;
+ 967              		.loc 1 119 8 is_stmt 0 view .LVU216
+ 968 00a4 DFED1D7A 		vldr.32	s15, .L64+36
+ 969 00a8 28EE278A 		vmul.f32	s16, s16, s15
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 24
+
+
+ 970              	.LVL92:
+ 120:Drivers/calc_odometry/Src/odometry.c **** 	float v = (vl + vr) / 2.0;
+ 971              		.loc 1 120 2 is_stmt 1 view .LVU217
+ 120:Drivers/calc_odometry/Src/odometry.c **** 	float v = (vl + vr) / 2.0;
+ 972              		.loc 1 120 8 is_stmt 0 view .LVU218
+ 973 00ac 68EEA78A 		vmul.f32	s17, s17, s15
+ 974              	.LVL93:
+ 121:Drivers/calc_odometry/Src/odometry.c **** 
+ 975              		.loc 1 121 2 is_stmt 1 view .LVU219
+ 121:Drivers/calc_odometry/Src/odometry.c **** 
+ 976              		.loc 1 121 16 is_stmt 0 view .LVU220
+ 977 00b0 38EE288A 		vadd.f32	s16, s16, s17
+ 978              	.LVL94:
+ 121:Drivers/calc_odometry/Src/odometry.c **** 
+ 979              		.loc 1 121 8 view .LVU221
+ 980 00b4 F6EE007A 		vmov.f32	s15, #5.0e-1
+ 981 00b8 28EE278A 		vmul.f32	s16, s16, s15
+ 982              	.LVL95:
+ 123:Drivers/calc_odometry/Src/odometry.c **** 	ctx->y += v*sinf(mTheta);
+ 983              		.loc 1 123 2 is_stmt 1 view .LVU222
+ 123:Drivers/calc_odometry/Src/odometry.c **** 	ctx->y += v*sinf(mTheta);
+ 984              		.loc 1 123 14 is_stmt 0 view .LVU223
+ 985 00bc FFF7FEFF 		bl	cosf
+ 986              	.LVL96:
+ 123:Drivers/calc_odometry/Src/odometry.c **** 	ctx->y += v*sinf(mTheta);
+ 987              		.loc 1 123 13 view .LVU224
+ 988 00c0 60EE087A 		vmul.f32	s15, s0, s16
+ 123:Drivers/calc_odometry/Src/odometry.c **** 	ctx->y += v*sinf(mTheta);
+ 989              		.loc 1 123 9 view .LVU225
+ 990 00c4 94ED000A 		vldr.32	s0, [r4]
+ 991 00c8 30EE270A 		vadd.f32	s0, s0, s15
+ 992 00cc 84ED000A 		vstr.32	s0, [r4]
+ 124:Drivers/calc_odometry/Src/odometry.c **** 	ctx->theta = mTheta;
+ 993              		.loc 1 124 2 is_stmt 1 view .LVU226
+ 124:Drivers/calc_odometry/Src/odometry.c **** 	ctx->theta = mTheta;
+ 994              		.loc 1 124 14 is_stmt 0 view .LVU227
+ 995 00d0 B0EE490A 		vmov.f32	s0, s18
+ 996 00d4 FFF7FEFF 		bl	sinf
+ 997              	.LVL97:
+ 124:Drivers/calc_odometry/Src/odometry.c **** 	ctx->theta = mTheta;
+ 998              		.loc 1 124 13 view .LVU228
+ 999 00d8 20EE080A 		vmul.f32	s0, s0, s16
+ 124:Drivers/calc_odometry/Src/odometry.c **** 	ctx->theta = mTheta;
+ 1000              		.loc 1 124 9 view .LVU229
+ 1001 00dc 94ED018A 		vldr.32	s16, [r4, #4]
+ 1002              	.LVL98:
+ 124:Drivers/calc_odometry/Src/odometry.c **** 	ctx->theta = mTheta;
+ 1003              		.loc 1 124 9 view .LVU230
+ 1004 00e0 38EE008A 		vadd.f32	s16, s16, s0
+ 1005 00e4 84ED018A 		vstr.32	s16, [r4, #4]
+ 125:Drivers/calc_odometry/Src/odometry.c **** }
+ 1006              		.loc 1 125 2 is_stmt 1 view .LVU231
+ 125:Drivers/calc_odometry/Src/odometry.c **** }
+ 1007              		.loc 1 125 13 is_stmt 0 view .LVU232
+ 1008 00e8 84ED029A 		vstr.32	s18, [r4, #8]
+ 126:Drivers/calc_odometry/Src/odometry.c **** 
+ 1009              		.loc 1 126 1 view .LVU233
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 25
+
+
+ 1010 00ec BDEC048B 		vldm	sp!, {d8-d9}
+ 1011              	.LCFI8:
+ 1012              		.cfi_restore 82
+ 1013              		.cfi_restore 83
+ 1014              		.cfi_restore 80
+ 1015              		.cfi_restore 81
+ 1016              		.cfi_def_cfa_offset 8
+ 1017              	.LVL99:
+ 126:Drivers/calc_odometry/Src/odometry.c **** 
+ 1018              		.loc 1 126 1 view .LVU234
+ 1019 00f0 10BD     		pop	{r4, pc}
+ 1020              	.L65:
+ 126:Drivers/calc_odometry/Src/odometry.c **** 
+ 1021              		.loc 1 126 1 view .LVU235
+ 1022 00f2 00BFAFF3 		.align	3
+ 1022      0080
+ 1023              	.L64:
+ 1024 00f8 00000000 		.word	0
+ 1025 00fc 00F09E40 		.word	1084157952
+ 1026 0100 00000060 		.word	1610612736
+ 1027 0104 FB210940 		.word	1074340347
+ 1028 0108 00080040 		.word	1073743872
+ 1029 010c 00000000 		.word	htim4
+ 1030 0110 00000000 		.word	htim2
+ 1031 0114 00000000 		.word	.LANCHOR0
+ 1032 0118 00000000 		.word	.LANCHOR1
+ 1033 011c 96430B3D 		.word	1024148374
+ 1034              		.cfi_endproc
+ 1035              	.LFE138:
+ 1037              		.global	__aeabi_i2d
+ 1038              		.section	.text.calc_yaw_pitch_roll_6dof,"ax",%progbits
+ 1039              		.align	1
+ 1040              		.global	calc_yaw_pitch_roll_6dof
+ 1041              		.syntax unified
+ 1042              		.thumb
+ 1043              		.thumb_func
+ 1045              	calc_yaw_pitch_roll_6dof:
+ 1046              	.LVL100:
+ 1047              	.LFB146:
+ 299:Drivers/calc_odometry/Src/odometry.c **** 
+ 300:Drivers/calc_odometry/Src/odometry.c **** void calc_yaw_pitch_roll_6dof(int16_t *data_raw_acceleration, int16_t *data_raw_magnetic, float *ro
+ 1048              		.loc 1 300 130 is_stmt 1 view -0
+ 1049              		.cfi_startproc
+ 1050              		@ args = 4, pretend = 0, frame = 24
+ 1051              		@ frame_needed = 0, uses_anonymous_args = 0
+ 1052              		.loc 1 300 130 is_stmt 0 view .LVU237
+ 1053 0000 2DE9F04F 		push	{r4, r5, r6, r7, r8, r9, r10, fp, lr}
+ 1054              	.LCFI9:
+ 1055              		.cfi_def_cfa_offset 36
+ 1056              		.cfi_offset 4, -36
+ 1057              		.cfi_offset 5, -32
+ 1058              		.cfi_offset 6, -28
+ 1059              		.cfi_offset 7, -24
+ 1060              		.cfi_offset 8, -20
+ 1061              		.cfi_offset 9, -16
+ 1062              		.cfi_offset 10, -12
+ 1063              		.cfi_offset 11, -8
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 26
+
+
+ 1064              		.cfi_offset 14, -4
+ 1065 0004 2DED028B 		vpush.64	{d8}
+ 1066              	.LCFI10:
+ 1067              		.cfi_def_cfa_offset 44
+ 1068              		.cfi_offset 80, -44
+ 1069              		.cfi_offset 81, -40
+ 1070 0008 87B0     		sub	sp, sp, #28
+ 1071              	.LCFI11:
+ 1072              		.cfi_def_cfa_offset 72
+ 1073 000a 8046     		mov	r8, r0
+ 1074 000c 0D46     		mov	r5, r1
+ 1075 000e 1446     		mov	r4, r2
+ 1076 0010 0093     		str	r3, [sp]
+ 301:Drivers/calc_odometry/Src/odometry.c **** 	 // Phi
+ 302:Drivers/calc_odometry/Src/odometry.c ****     *roll = atan2(data_raw_acceleration[1], data_raw_acceleration[2]);
+ 1077              		.loc 1 302 5 is_stmt 1 view .LVU238
+ 1078              		.loc 1 302 40 is_stmt 0 view .LVU239
+ 1079 0012 B0F90260 		ldrsh	r6, [r0, #2]
+ 1080              		.loc 1 302 13 view .LVU240
+ 1081 0016 B0F90400 		ldrsh	r0, [r0, #4]
+ 1082              	.LVL101:
+ 1083              		.loc 1 302 13 view .LVU241
+ 1084 001a FFF7FEFF 		bl	__aeabi_i2d
+ 1085              	.LVL102:
+ 1086              		.loc 1 302 13 view .LVU242
+ 1087 001e 41EC180B 		vmov	d8, r0, r1
+ 1088 0022 3046     		mov	r0, r6
+ 1089 0024 FFF7FEFF 		bl	__aeabi_i2d
+ 1090              	.LVL103:
+ 1091 0028 B0EE481A 		vmov.f32	s2, s16
+ 1092 002c F0EE681A 		vmov.f32	s3, s17
+ 1093 0030 41EC100B 		vmov	d0, r0, r1
+ 1094 0034 FFF7FEFF 		bl	atan2
+ 1095              	.LVL104:
+ 1096 0038 51EC100B 		vmov	r0, r1, d0
+ 1097 003c FFF7FEFF 		bl	__aeabi_d2f
+ 1098              	.LVL105:
+ 1099              		.loc 1 302 11 view .LVU243
+ 1100 0040 2060     		str	r0, [r4]	@ float
+ 303:Drivers/calc_odometry/Src/odometry.c ****     // Theta
+ 304:Drivers/calc_odometry/Src/odometry.c ****     *pitch = atan(-data_raw_acceleration[0] / (data_raw_acceleration[1] * sin(*roll) + data_raw_acc
+ 1101              		.loc 1 304 5 is_stmt 1 view .LVU244
+ 1102              		.loc 1 304 41 is_stmt 0 view .LVU245
+ 1103 0042 B8F900A0 		ldrsh	r10, [r8]
+ 1104              		.loc 1 304 19 view .LVU246
+ 1105 0046 CAF1000A 		rsb	r10, r10, #0
+ 1106              		.loc 1 304 69 view .LVU247
+ 1107 004a B8F90290 		ldrsh	r9, [r8, #2]
+ 1108              		.loc 1 304 75 view .LVU248
+ 1109 004e FFF7FEFF 		bl	__aeabi_f2d
+ 1110              	.LVL106:
+ 1111 0052 41EC180B 		vmov	d8, r0, r1
+ 1112 0056 41EC100B 		vmov	d0, r0, r1
+ 1113 005a FFF7FEFF 		bl	sin
+ 1114              	.LVL107:
+ 1115 005e 57EC106B 		vmov	r6, r7, d0
+ 1116              		.loc 1 304 73 view .LVU249
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 27
+
+
+ 1117 0062 4846     		mov	r0, r9
+ 1118 0064 FFF7FEFF 		bl	__aeabi_i2d
+ 1119              	.LVL108:
+ 1120 0068 3246     		mov	r2, r6
+ 1121 006a 3B46     		mov	r3, r7
+ 1122 006c FFF7FEFF 		bl	__aeabi_dmul
+ 1123              	.LVL109:
+ 1124 0070 0646     		mov	r6, r0
+ 1125 0072 0F46     		mov	r7, r1
+ 1126              		.loc 1 304 109 view .LVU250
+ 1127 0074 B8F904B0 		ldrsh	fp, [r8, #4]
+ 1128              		.loc 1 304 115 view .LVU251
+ 1129 0078 B0EE480A 		vmov.f32	s0, s16
+ 1130 007c F0EE680A 		vmov.f32	s1, s17
+ 1131 0080 FFF7FEFF 		bl	cos
+ 1132              	.LVL110:
+ 1133 0084 59EC108B 		vmov	r8, r9, d0
+ 1134              	.LVL111:
+ 1135              		.loc 1 304 113 view .LVU252
+ 1136 0088 5846     		mov	r0, fp
+ 1137 008a FFF7FEFF 		bl	__aeabi_i2d
+ 1138              	.LVL112:
+ 1139 008e 4246     		mov	r2, r8
+ 1140 0090 4B46     		mov	r3, r9
+ 1141 0092 FFF7FEFF 		bl	__aeabi_dmul
+ 1142              	.LVL113:
+ 1143 0096 0246     		mov	r2, r0
+ 1144 0098 0B46     		mov	r3, r1
+ 1145              		.loc 1 304 86 view .LVU253
+ 1146 009a 3046     		mov	r0, r6
+ 1147 009c 3946     		mov	r1, r7
+ 1148 009e FFF7FEFF 		bl	__aeabi_dadd
+ 1149              	.LVL114:
+ 1150 00a2 0646     		mov	r6, r0
+ 1151 00a4 0F46     		mov	r7, r1
+ 1152              		.loc 1 304 14 view .LVU254
+ 1153 00a6 5046     		mov	r0, r10
+ 1154 00a8 FFF7FEFF 		bl	__aeabi_i2d
+ 1155              	.LVL115:
+ 1156 00ac 3246     		mov	r2, r6
+ 1157 00ae 3B46     		mov	r3, r7
+ 1158 00b0 FFF7FEFF 		bl	__aeabi_ddiv
+ 1159              	.LVL116:
+ 1160 00b4 41EC100B 		vmov	d0, r0, r1
+ 1161 00b8 FFF7FEFF 		bl	atan
+ 1162              	.LVL117:
+ 1163 00bc 51EC100B 		vmov	r0, r1, d0
+ 1164 00c0 FFF7FEFF 		bl	__aeabi_d2f
+ 1165              	.LVL118:
+ 1166 00c4 8146     		mov	r9, r0	@ float
+ 1167              		.loc 1 304 12 view .LVU255
+ 1168 00c6 009B     		ldr	r3, [sp]
+ 1169 00c8 1860     		str	r0, [r3]	@ float
+ 305:Drivers/calc_odometry/Src/odometry.c **** 
+ 306:Drivers/calc_odometry/Src/odometry.c ****     float magn_fy_fs = data_raw_magnetic[2]  * sin(*roll) - data_raw_magnetic[1]*cos(*roll);
+ 1170              		.loc 1 306 5 is_stmt 1 view .LVU256
+ 1171              		.loc 1 306 46 is_stmt 0 view .LVU257
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 28
+
+
+ 1172 00ca B5F90400 		ldrsh	r0, [r5, #4]
+ 1173 00ce FFF7FEFF 		bl	__aeabi_i2d
+ 1174              	.LVL119:
+ 1175 00d2 0646     		mov	r6, r0
+ 1176 00d4 0F46     		mov	r7, r1
+ 1177              		.loc 1 306 48 view .LVU258
+ 1178 00d6 2068     		ldr	r0, [r4]	@ float
+ 1179 00d8 FFF7FEFF 		bl	__aeabi_f2d
+ 1180              	.LVL120:
+ 1181 00dc 41EC180B 		vmov	d8, r0, r1
+ 1182 00e0 41EC100B 		vmov	d0, r0, r1
+ 1183 00e4 FFF7FEFF 		bl	sin
+ 1184              	.LVL121:
+ 1185 00e8 54EC103B 		vmov	r3, r4, d0
+ 1186              		.loc 1 306 46 view .LVU259
+ 1187 00ec 8DED020B 		vstr.64	d0, [sp, #8]
+ 1188 00f0 10EE102A 		vmov	r2, s0	@ int
+ 1189 00f4 2346     		mov	r3, r4
+ 1190 00f6 CDE90067 		strd	r6, [sp]
+ 1191              	.LVL122:
+ 1192              		.loc 1 306 46 view .LVU260
+ 1193 00fa 3046     		mov	r0, r6
+ 1194 00fc 3946     		mov	r1, r7
+ 1195 00fe FFF7FEFF 		bl	__aeabi_dmul
+ 1196              	.LVL123:
+ 1197 0102 CDE90401 		strd	r0, [sp, #16]
+ 1198              		.loc 1 306 81 view .LVU261
+ 1199 0106 B5F90200 		ldrsh	r0, [r5, #2]
+ 1200 010a FFF7FEFF 		bl	__aeabi_i2d
+ 1201              	.LVL124:
+ 1202 010e 0646     		mov	r6, r0
+ 1203 0110 0F46     		mov	r7, r1
+ 1204              		.loc 1 306 82 view .LVU262
+ 1205 0112 B0EE480A 		vmov.f32	s0, s16
+ 1206 0116 F0EE680A 		vmov.f32	s1, s17
+ 1207 011a FFF7FEFF 		bl	cos
+ 1208              	.LVL125:
+ 1209 011e 5BEC10AB 		vmov	r10, fp, d0
+ 1210              		.loc 1 306 81 view .LVU263
+ 1211 0122 10EE102A 		vmov	r2, s0	@ int
+ 1212 0126 5B46     		mov	r3, fp
+ 1213 0128 3046     		mov	r0, r6
+ 1214 012a 3946     		mov	r1, r7
+ 1215 012c FFF7FEFF 		bl	__aeabi_dmul
+ 1216              	.LVL126:
+ 1217 0130 0246     		mov	r2, r0
+ 1218 0132 0B46     		mov	r3, r1
+ 1219              		.loc 1 306 59 view .LVU264
+ 1220 0134 DDE90401 		ldrd	r0, [sp, #16]
+ 1221 0138 FFF7FEFF 		bl	__aeabi_dsub
+ 1222              	.LVL127:
+ 1223              		.loc 1 306 11 view .LVU265
+ 1224 013c FFF7FEFF 		bl	__aeabi_d2f
+ 1225              	.LVL128:
+ 1226 0140 0490     		str	r0, [sp, #16]	@ float
+ 1227              	.LVL129:
+ 307:Drivers/calc_odometry/Src/odometry.c ****     float magn_fx_fs = data_raw_magnetic[0] * cos(*pitch) + data_raw_magnetic[1] * sin(*pitch) * si
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 29
+
+
+ 1228              		.loc 1 307 5 is_stmt 1 view .LVU266
+ 1229              		.loc 1 307 41 is_stmt 0 view .LVU267
+ 1230 0142 B5F90080 		ldrsh	r8, [r5]
+ 1231              		.loc 1 307 47 view .LVU268
+ 1232 0146 4846     		mov	r0, r9	@ float
+ 1233              	.LVL130:
+ 1234              		.loc 1 307 47 view .LVU269
+ 1235 0148 FFF7FEFF 		bl	__aeabi_f2d
+ 1236              	.LVL131:
+ 1237 014c 41EC180B 		vmov	d8, r0, r1
+ 1238 0150 41EC100B 		vmov	d0, r0, r1
+ 1239 0154 FFF7FEFF 		bl	cos
+ 1240              	.LVL132:
+ 1241 0158 55EC104B 		vmov	r4, r5, d0
+ 1242              	.LVL133:
+ 1243              		.loc 1 307 45 view .LVU270
+ 1244 015c 4046     		mov	r0, r8
+ 1245 015e FFF7FEFF 		bl	__aeabi_i2d
+ 1246              	.LVL134:
+ 1247 0162 2246     		mov	r2, r4
+ 1248 0164 2B46     		mov	r3, r5
+ 1249 0166 FFF7FEFF 		bl	__aeabi_dmul
+ 1250              	.LVL135:
+ 1251 016a 8046     		mov	r8, r0
+ 1252 016c 8946     		mov	r9, r1
+ 1253              		.loc 1 307 84 view .LVU271
+ 1254 016e B0EE480A 		vmov.f32	s0, s16
+ 1255 0172 F0EE680A 		vmov.f32	s1, s17
+ 1256 0176 FFF7FEFF 		bl	sin
+ 1257              	.LVL136:
+ 1258 017a 55EC104B 		vmov	r4, r5, d0
+ 1259              		.loc 1 307 82 view .LVU272
+ 1260 017e 10EE102A 		vmov	r2, s0	@ int
+ 1261 0182 2B46     		mov	r3, r5
+ 1262 0184 3046     		mov	r0, r6
+ 1263 0186 3946     		mov	r1, r7
+ 1264 0188 FFF7FEFF 		bl	__aeabi_dmul
+ 1265              	.LVL137:
+ 1266 018c 0246     		mov	r2, r0
+ 1267 018e 0B46     		mov	r3, r1
+ 1268              		.loc 1 307 96 view .LVU273
+ 1269 0190 DDE90201 		ldrd	r0, [sp, #8]
+ 1270 0194 FFF7FEFF 		bl	__aeabi_dmul
+ 1271              	.LVL138:
+ 1272 0198 0246     		mov	r2, r0
+ 1273 019a 0B46     		mov	r3, r1
+ 1274              		.loc 1 307 59 view .LVU274
+ 1275 019c 4046     		mov	r0, r8
+ 1276 019e 4946     		mov	r1, r9
+ 1277 01a0 FFF7FEFF 		bl	__aeabi_dadd
+ 1278              	.LVL139:
+ 1279 01a4 0646     		mov	r6, r0
+ 1280 01a6 0F46     		mov	r7, r1
+ 1281              		.loc 1 307 133 view .LVU275
+ 1282 01a8 2246     		mov	r2, r4
+ 1283 01aa 2B46     		mov	r3, r5
+ 1284 01ac DDE90001 		ldrd	r0, [sp]
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 30
+
+
+ 1285 01b0 FFF7FEFF 		bl	__aeabi_dmul
+ 1286              	.LVL140:
+ 1287 01b4 0246     		mov	r2, r0
+ 1288 01b6 0B46     		mov	r3, r1
+ 1289              		.loc 1 307 147 view .LVU276
+ 1290 01b8 5046     		mov	r0, r10
+ 1291 01ba 5946     		mov	r1, fp
+ 1292 01bc FFF7FEFF 		bl	__aeabi_dmul
+ 1293              	.LVL141:
+ 1294 01c0 0246     		mov	r2, r0
+ 1295 01c2 0B46     		mov	r3, r1
+ 1296              		.loc 1 307 109 view .LVU277
+ 1297 01c4 3046     		mov	r0, r6
+ 1298 01c6 3946     		mov	r1, r7
+ 1299 01c8 FFF7FEFF 		bl	__aeabi_dadd
+ 1300              	.LVL142:
+ 1301              		.loc 1 307 11 view .LVU278
+ 1302 01cc FFF7FEFF 		bl	__aeabi_d2f
+ 1303              	.LVL143:
+ 308:Drivers/calc_odometry/Src/odometry.c **** 
+ 309:Drivers/calc_odometry/Src/odometry.c ****     *yaw = atan2(magn_fy_fs, magn_fx_fs);
+ 1304              		.loc 1 309 5 is_stmt 1 view .LVU279
+ 1305              		.loc 1 309 12 is_stmt 0 view .LVU280
+ 1306 01d0 FFF7FEFF 		bl	__aeabi_f2d
+ 1307              	.LVL144:
+ 1308              		.loc 1 309 12 view .LVU281
+ 1309 01d4 41EC180B 		vmov	d8, r0, r1
+ 1310 01d8 0498     		ldr	r0, [sp, #16]	@ float
+ 1311 01da FFF7FEFF 		bl	__aeabi_f2d
+ 1312              	.LVL145:
+ 1313 01de B0EE481A 		vmov.f32	s2, s16
+ 1314 01e2 F0EE681A 		vmov.f32	s3, s17
+ 1315 01e6 41EC100B 		vmov	d0, r0, r1
+ 1316 01ea FFF7FEFF 		bl	atan2
+ 1317              	.LVL146:
+ 1318 01ee 51EC100B 		vmov	r0, r1, d0
+ 1319 01f2 FFF7FEFF 		bl	__aeabi_d2f
+ 1320              	.LVL147:
+ 1321 01f6 07EE900A 		vmov	s15, r0
+ 1322              		.loc 1 309 10 view .LVU282
+ 1323 01fa 129B     		ldr	r3, [sp, #72]
+ 1324 01fc 1860     		str	r0, [r3]	@ float
+ 310:Drivers/calc_odometry/Src/odometry.c **** 
+ 311:Drivers/calc_odometry/Src/odometry.c ****     if (*yaw < 0) {
+ 1325              		.loc 1 311 5 is_stmt 1 view .LVU283
+ 1326              		.loc 1 311 8 is_stmt 0 view .LVU284
+ 1327 01fe F5EEC07A 		vcmpe.f32	s15, #0
+ 1328 0202 F1EE10FA 		vmrs	APSR_nzcv, FPSCR
+ 1329 0206 04D4     		bmi	.L71
+ 1330              	.L66:
+ 312:Drivers/calc_odometry/Src/odometry.c ****     	*yaw = *yaw + 2*PI;
+ 313:Drivers/calc_odometry/Src/odometry.c ****     }
+ 314:Drivers/calc_odometry/Src/odometry.c **** }
+ 1331              		.loc 1 314 1 view .LVU285
+ 1332 0208 07B0     		add	sp, sp, #28
+ 1333              	.LCFI12:
+ 1334              		.cfi_remember_state
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 31
+
+
+ 1335              		.cfi_def_cfa_offset 44
+ 1336              		@ sp needed
+ 1337 020a BDEC028B 		vldm	sp!, {d8}
+ 1338              	.LCFI13:
+ 1339              		.cfi_restore 80
+ 1340              		.cfi_restore 81
+ 1341              		.cfi_def_cfa_offset 36
+ 1342 020e BDE8F08F 		pop	{r4, r5, r6, r7, r8, r9, r10, fp, pc}
+ 1343              	.LVL148:
+ 1344              	.L71:
+ 1345              	.LCFI14:
+ 1346              		.cfi_restore_state
+ 312:Drivers/calc_odometry/Src/odometry.c ****     	*yaw = *yaw + 2*PI;
+ 1347              		.loc 1 312 6 is_stmt 1 view .LVU286
+ 312:Drivers/calc_odometry/Src/odometry.c ****     	*yaw = *yaw + 2*PI;
+ 1348              		.loc 1 312 18 is_stmt 0 view .LVU287
+ 1349 0212 9FED037A 		vldr.32	s14, .L72
+ 1350 0216 77EE877A 		vadd.f32	s15, s15, s14
+ 312:Drivers/calc_odometry/Src/odometry.c ****     	*yaw = *yaw + 2*PI;
+ 1351              		.loc 1 312 11 view .LVU288
+ 1352 021a C3ED007A 		vstr.32	s15, [r3]
+ 1353              		.loc 1 314 1 view .LVU289
+ 1354 021e F3E7     		b	.L66
+ 1355              	.L73:
+ 1356              		.align	2
+ 1357              	.L72:
+ 1358 0220 DB0FC940 		.word	1086918619
+ 1359              		.cfi_endproc
+ 1360              	.LFE146:
+ 1362              		.section	.text.calc_yaw_pitch_roll_9dof,"ax",%progbits
+ 1363              		.align	1
+ 1364              		.global	calc_yaw_pitch_roll_9dof
+ 1365              		.syntax unified
+ 1366              		.thumb
+ 1367              		.thumb_func
+ 1369              	calc_yaw_pitch_roll_9dof:
+ 1370              	.LVL149:
+ 1371              	.LFB147:
+ 315:Drivers/calc_odometry/Src/odometry.c **** 
+ 316:Drivers/calc_odometry/Src/odometry.c **** void calc_yaw_pitch_roll_9dof(int16_t *data_raw_acceleration, int16_t *data_raw_magnetic, float *an
+ 1372              		.loc 1 316 156 is_stmt 1 view -0
+ 1373              		.cfi_startproc
+ 1374              		@ args = 8, pretend = 0, frame = 48
+ 1375              		@ frame_needed = 0, uses_anonymous_args = 0
+ 1376              		.loc 1 316 156 is_stmt 0 view .LVU291
+ 1377 0000 2DE9F04F 		push	{r4, r5, r6, r7, r8, r9, r10, fp, lr}
+ 1378              	.LCFI15:
+ 1379              		.cfi_def_cfa_offset 36
+ 1380              		.cfi_offset 4, -36
+ 1381              		.cfi_offset 5, -32
+ 1382              		.cfi_offset 6, -28
+ 1383              		.cfi_offset 7, -24
+ 1384              		.cfi_offset 8, -20
+ 1385              		.cfi_offset 9, -16
+ 1386              		.cfi_offset 10, -12
+ 1387              		.cfi_offset 11, -8
+ 1388              		.cfi_offset 14, -4
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 32
+
+
+ 1389 0004 2DED048B 		vpush.64	{d8, d9}
+ 1390              	.LCFI16:
+ 1391              		.cfi_def_cfa_offset 52
+ 1392              		.cfi_offset 80, -52
+ 1393              		.cfi_offset 81, -48
+ 1394              		.cfi_offset 82, -44
+ 1395              		.cfi_offset 83, -40
+ 1396 0008 8DB0     		sub	sp, sp, #52
+ 1397              	.LCFI17:
+ 1398              		.cfi_def_cfa_offset 104
+ 1399 000a 8146     		mov	r9, r0
+ 1400 000c 8846     		mov	r8, r1
+ 1401 000e 1446     		mov	r4, r2
+ 1402 0010 1F46     		mov	r7, r3
+ 317:Drivers/calc_odometry/Src/odometry.c **** 	 // Phi
+ 318:Drivers/calc_odometry/Src/odometry.c **** 	float phi = atan2(data_raw_acceleration[1], data_raw_acceleration[2]);
+ 1403              		.loc 1 318 2 is_stmt 1 view .LVU292
+ 1404              		.loc 1 318 41 is_stmt 0 view .LVU293
+ 1405 0012 B0F90250 		ldrsh	r5, [r0, #2]
+ 1406              		.loc 1 318 14 view .LVU294
+ 1407 0016 B0F90400 		ldrsh	r0, [r0, #4]
+ 1408              	.LVL150:
+ 1409              		.loc 1 318 14 view .LVU295
+ 1410 001a FFF7FEFF 		bl	__aeabi_i2d
+ 1411              	.LVL151:
+ 1412              		.loc 1 318 14 view .LVU296
+ 1413 001e 41EC180B 		vmov	d8, r0, r1
+ 1414 0022 2846     		mov	r0, r5
+ 1415 0024 FFF7FEFF 		bl	__aeabi_i2d
+ 1416              	.LVL152:
+ 1417 0028 B0EE481A 		vmov.f32	s2, s16
+ 1418 002c F0EE681A 		vmov.f32	s3, s17
+ 1419 0030 41EC100B 		vmov	d0, r0, r1
+ 1420 0034 FFF7FEFF 		bl	atan2
+ 1421              	.LVL153:
+ 1422 0038 51EC100B 		vmov	r0, r1, d0
+ 1423              		.loc 1 318 8 view .LVU297
+ 1424 003c FFF7FEFF 		bl	__aeabi_d2f
+ 1425              	.LVL154:
+ 1426 0040 0890     		str	r0, [sp, #32]	@ float
+ 1427              	.LVL155:
+ 319:Drivers/calc_odometry/Src/odometry.c ****     // Theta
+ 320:Drivers/calc_odometry/Src/odometry.c **** 	float theta = atan(-data_raw_acceleration[0] / (data_raw_acceleration[1] * sin(*roll) + data_raw_a
+ 1428              		.loc 1 320 2 is_stmt 1 view .LVU298
+ 1429              		.loc 1 320 43 is_stmt 0 view .LVU299
+ 1430 0042 B9F90050 		ldrsh	r5, [r9]
+ 1431              		.loc 1 320 21 view .LVU300
+ 1432 0046 6D42     		rsbs	r5, r5, #0
+ 1433              		.loc 1 320 71 view .LVU301
+ 1434 0048 B9F90260 		ldrsh	r6, [r9, #2]
+ 1435              		.loc 1 320 77 view .LVU302
+ 1436 004c 0797     		str	r7, [sp, #28]
+ 1437 004e 3868     		ldr	r0, [r7]	@ float
+ 1438              	.LVL156:
+ 1439              		.loc 1 320 77 view .LVU303
+ 1440 0050 FFF7FEFF 		bl	__aeabi_f2d
+ 1441              	.LVL157:
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 33
+
+
+ 1442 0054 41EC180B 		vmov	d8, r0, r1
+ 1443 0058 41EC100B 		vmov	d0, r0, r1
+ 1444 005c FFF7FEFF 		bl	sin
+ 1445              	.LVL158:
+ 1446 0060 5BEC10AB 		vmov	r10, fp, d0
+ 1447              		.loc 1 320 75 view .LVU304
+ 1448 0064 3046     		mov	r0, r6
+ 1449 0066 FFF7FEFF 		bl	__aeabi_i2d
+ 1450              	.LVL159:
+ 1451 006a CDE900AB 		strd	r10, [sp]
+ 1452 006e 5246     		mov	r2, r10
+ 1453 0070 5B46     		mov	r3, fp
+ 1454 0072 FFF7FEFF 		bl	__aeabi_dmul
+ 1455              	.LVL160:
+ 1456 0076 0646     		mov	r6, r0
+ 1457 0078 0F46     		mov	r7, r1
+ 1458              	.LVL161:
+ 1459              		.loc 1 320 111 view .LVU305
+ 1460 007a B9F90490 		ldrsh	r9, [r9, #4]
+ 1461              	.LVL162:
+ 1462              		.loc 1 320 117 view .LVU306
+ 1463 007e B0EE480A 		vmov.f32	s0, s16
+ 1464 0082 F0EE680A 		vmov.f32	s1, s17
+ 1465 0086 FFF7FEFF 		bl	cos
+ 1466              	.LVL163:
+ 1467 008a 5BEC10AB 		vmov	r10, fp, d0
+ 1468              		.loc 1 320 115 view .LVU307
+ 1469 008e 4846     		mov	r0, r9
+ 1470 0090 FFF7FEFF 		bl	__aeabi_i2d
+ 1471              	.LVL164:
+ 1472 0094 5246     		mov	r2, r10
+ 1473 0096 5B46     		mov	r3, fp
+ 1474 0098 FFF7FEFF 		bl	__aeabi_dmul
+ 1475              	.LVL165:
+ 1476 009c 0246     		mov	r2, r0
+ 1477 009e 0B46     		mov	r3, r1
+ 1478              		.loc 1 320 88 view .LVU308
+ 1479 00a0 3046     		mov	r0, r6
+ 1480 00a2 3946     		mov	r1, r7
+ 1481 00a4 FFF7FEFF 		bl	__aeabi_dadd
+ 1482              	.LVL166:
+ 1483 00a8 0646     		mov	r6, r0
+ 1484 00aa 0F46     		mov	r7, r1
+ 1485              		.loc 1 320 16 view .LVU309
+ 1486 00ac 2846     		mov	r0, r5
+ 1487 00ae FFF7FEFF 		bl	__aeabi_i2d
+ 1488              	.LVL167:
+ 1489 00b2 3246     		mov	r2, r6
+ 1490 00b4 3B46     		mov	r3, r7
+ 1491 00b6 FFF7FEFF 		bl	__aeabi_ddiv
+ 1492              	.LVL168:
+ 1493 00ba 41EC100B 		vmov	d0, r0, r1
+ 1494 00be FFF7FEFF 		bl	atan
+ 1495              	.LVL169:
+ 1496 00c2 51EC100B 		vmov	r0, r1, d0
+ 1497              		.loc 1 320 8 view .LVU310
+ 1498 00c6 FFF7FEFF 		bl	__aeabi_d2f
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 34
+
+
+ 1499              	.LVL170:
+ 1500 00ca 0A90     		str	r0, [sp, #40]	@ float
+ 1501              	.LVL171:
+ 321:Drivers/calc_odometry/Src/odometry.c **** 
+ 322:Drivers/calc_odometry/Src/odometry.c **** 	float magn_fy_fs = data_raw_magnetic[2]  * sin(*roll) - data_raw_magnetic[1]*cos(*roll);
+ 1502              		.loc 1 322 2 is_stmt 1 view .LVU311
+ 1503              		.loc 1 322 43 is_stmt 0 view .LVU312
+ 1504 00cc B8F90400 		ldrsh	r0, [r8, #4]
+ 1505              	.LVL172:
+ 1506              		.loc 1 322 43 view .LVU313
+ 1507 00d0 FFF7FEFF 		bl	__aeabi_i2d
+ 1508              	.LVL173:
+ 1509 00d4 0246     		mov	r2, r0
+ 1510 00d6 0B46     		mov	r3, r1
+ 1511 00d8 CDE90223 		strd	r2, [sp, #8]
+ 1512 00dc DDE90001 		ldrd	r0, [sp]
+ 1513 00e0 FFF7FEFF 		bl	__aeabi_dmul
+ 1514              	.LVL174:
+ 1515 00e4 0646     		mov	r6, r0
+ 1516 00e6 0F46     		mov	r7, r1
+ 1517              		.loc 1 322 78 view .LVU314
+ 1518 00e8 B8F90200 		ldrsh	r0, [r8, #2]
+ 1519 00ec FFF7FEFF 		bl	__aeabi_i2d
+ 1520              	.LVL175:
+ 1521 00f0 0246     		mov	r2, r0
+ 1522 00f2 0B46     		mov	r3, r1
+ 1523 00f4 CDE90423 		strd	r2, [sp, #16]
+ 1524 00f8 5046     		mov	r0, r10
+ 1525 00fa 5946     		mov	r1, fp
+ 1526 00fc FFF7FEFF 		bl	__aeabi_dmul
+ 1527              	.LVL176:
+ 1528 0100 0246     		mov	r2, r0
+ 1529 0102 0B46     		mov	r3, r1
+ 1530              		.loc 1 322 56 view .LVU315
+ 1531 0104 3046     		mov	r0, r6
+ 1532 0106 3946     		mov	r1, r7
+ 1533 0108 FFF7FEFF 		bl	__aeabi_dsub
+ 1534              	.LVL177:
+ 1535              		.loc 1 322 8 view .LVU316
+ 1536 010c FFF7FEFF 		bl	__aeabi_d2f
+ 1537              	.LVL178:
+ 1538 0110 0546     		mov	r5, r0	@ float
+ 1539              	.LVL179:
+ 323:Drivers/calc_odometry/Src/odometry.c ****     float magn_fx_fs = data_raw_magnetic[0] * cos(*pitch) + data_raw_magnetic[1] * sin(*pitch) * si
+ 1540              		.loc 1 323 5 is_stmt 1 view .LVU317
+ 1541              		.loc 1 323 41 is_stmt 0 view .LVU318
+ 1542 0112 B8F90080 		ldrsh	r8, [r8]
+ 1543              	.LVL180:
+ 1544              		.loc 1 323 47 view .LVU319
+ 1545 0116 1A9A     		ldr	r2, [sp, #104]
+ 1546 0118 1068     		ldr	r0, [r2]	@ float
+ 1547              	.LVL181:
+ 1548              		.loc 1 323 47 view .LVU320
+ 1549 011a FFF7FEFF 		bl	__aeabi_f2d
+ 1550              	.LVL182:
+ 1551 011e 41EC180B 		vmov	d8, r0, r1
+ 1552 0122 41EC100B 		vmov	d0, r0, r1
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 35
+
+
+ 1553 0126 FFF7FEFF 		bl	cos
+ 1554              	.LVL183:
+ 1555 012a 57EC106B 		vmov	r6, r7, d0
+ 1556              		.loc 1 323 45 view .LVU321
+ 1557 012e 4046     		mov	r0, r8
+ 1558 0130 FFF7FEFF 		bl	__aeabi_i2d
+ 1559              	.LVL184:
+ 1560 0134 3246     		mov	r2, r6
+ 1561 0136 3B46     		mov	r3, r7
+ 1562 0138 FFF7FEFF 		bl	__aeabi_dmul
+ 1563              	.LVL185:
+ 1564 013c 8046     		mov	r8, r0
+ 1565 013e 8946     		mov	r9, r1
+ 1566              		.loc 1 323 84 view .LVU322
+ 1567 0140 B0EE480A 		vmov.f32	s0, s16
+ 1568 0144 F0EE680A 		vmov.f32	s1, s17
+ 1569 0148 FFF7FEFF 		bl	sin
+ 1570              	.LVL186:
+ 1571 014c 57EC106B 		vmov	r6, r7, d0
+ 1572              		.loc 1 323 82 view .LVU323
+ 1573 0150 10EE102A 		vmov	r2, s0	@ int
+ 1574 0154 3B46     		mov	r3, r7
+ 1575 0156 DDE90401 		ldrd	r0, [sp, #16]
+ 1576 015a FFF7FEFF 		bl	__aeabi_dmul
+ 1577              	.LVL187:
+ 1578 015e 0246     		mov	r2, r0
+ 1579 0160 0B46     		mov	r3, r1
+ 1580              		.loc 1 323 96 view .LVU324
+ 1581 0162 DDE90001 		ldrd	r0, [sp]
+ 1582 0166 FFF7FEFF 		bl	__aeabi_dmul
+ 1583              	.LVL188:
+ 1584 016a 0246     		mov	r2, r0
+ 1585 016c 0B46     		mov	r3, r1
+ 1586              		.loc 1 323 59 view .LVU325
+ 1587 016e 4046     		mov	r0, r8
+ 1588 0170 4946     		mov	r1, r9
+ 1589 0172 FFF7FEFF 		bl	__aeabi_dadd
+ 1590              	.LVL189:
+ 1591 0176 8046     		mov	r8, r0
+ 1592 0178 8946     		mov	r9, r1
+ 1593              		.loc 1 323 133 view .LVU326
+ 1594 017a 3246     		mov	r2, r6
+ 1595 017c 3B46     		mov	r3, r7
+ 1596 017e DDE90201 		ldrd	r0, [sp, #8]
+ 1597 0182 FFF7FEFF 		bl	__aeabi_dmul
+ 1598              	.LVL190:
+ 1599 0186 0246     		mov	r2, r0
+ 1600 0188 0B46     		mov	r3, r1
+ 1601              		.loc 1 323 147 view .LVU327
+ 1602 018a 5046     		mov	r0, r10
+ 1603 018c 5946     		mov	r1, fp
+ 1604 018e FFF7FEFF 		bl	__aeabi_dmul
+ 1605              	.LVL191:
+ 1606 0192 0246     		mov	r2, r0
+ 1607 0194 0B46     		mov	r3, r1
+ 1608              		.loc 1 323 109 view .LVU328
+ 1609 0196 4046     		mov	r0, r8
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 36
+
+
+ 1610 0198 4946     		mov	r1, r9
+ 1611 019a FFF7FEFF 		bl	__aeabi_dadd
+ 1612              	.LVL192:
+ 1613              		.loc 1 323 11 view .LVU329
+ 1614 019e FFF7FEFF 		bl	__aeabi_d2f
+ 1615              	.LVL193:
+ 324:Drivers/calc_odometry/Src/odometry.c **** 
+ 325:Drivers/calc_odometry/Src/odometry.c ****     float psi = atan2(magn_fy_fs, magn_fx_fs);
+ 1616              		.loc 1 325 5 is_stmt 1 view .LVU330
+ 1617              		.loc 1 325 17 is_stmt 0 view .LVU331
+ 1618 01a2 FFF7FEFF 		bl	__aeabi_f2d
+ 1619              	.LVL194:
+ 1620              		.loc 1 325 17 view .LVU332
+ 1621 01a6 41EC180B 		vmov	d8, r0, r1
+ 1622 01aa 2846     		mov	r0, r5	@ float
+ 1623 01ac FFF7FEFF 		bl	__aeabi_f2d
+ 1624              	.LVL195:
+ 1625 01b0 B0EE481A 		vmov.f32	s2, s16
+ 1626 01b4 F0EE681A 		vmov.f32	s3, s17
+ 1627 01b8 41EC100B 		vmov	d0, r0, r1
+ 1628 01bc FFF7FEFF 		bl	atan2
+ 1629              	.LVL196:
+ 1630 01c0 51EC100B 		vmov	r0, r1, d0
+ 1631              		.loc 1 325 11 view .LVU333
+ 1632 01c4 FFF7FEFF 		bl	__aeabi_d2f
+ 1633              	.LVL197:
+ 1634 01c8 0646     		mov	r6, r0	@ float
+ 1635              	.LVL198:
+ 326:Drivers/calc_odometry/Src/odometry.c **** 
+ 327:Drivers/calc_odometry/Src/odometry.c ****     float phi_dot = angular_rate_dps[0] + angular_rate_dps[1]*sin(phi) * tan(theta) + angular_rate_
+ 1636              		.loc 1 327 5 is_stmt 1 view .LVU334
+ 1637              		.loc 1 327 37 is_stmt 0 view .LVU335
+ 1638 01ca 2068     		ldr	r0, [r4]	@ float
+ 1639              	.LVL199:
+ 1640              		.loc 1 327 37 view .LVU336
+ 1641 01cc FFF7FEFF 		bl	__aeabi_f2d
+ 1642              	.LVL200:
+ 1643 01d0 8046     		mov	r8, r0
+ 1644 01d2 8946     		mov	r9, r1
+ 1645              		.loc 1 327 59 view .LVU337
+ 1646 01d4 6068     		ldr	r0, [r4, #4]	@ float
+ 1647 01d6 FFF7FEFF 		bl	__aeabi_f2d
+ 1648              	.LVL201:
+ 1649 01da 8246     		mov	r10, r0
+ 1650 01dc 8B46     		mov	fp, r1
+ 1651              		.loc 1 327 63 view .LVU338
+ 1652 01de 0898     		ldr	r0, [sp, #32]	@ float
+ 1653 01e0 FFF7FEFF 		bl	__aeabi_f2d
+ 1654              	.LVL202:
+ 1655 01e4 41EC190B 		vmov	d9, r0, r1
+ 1656 01e8 41EC100B 		vmov	d0, r0, r1
+ 1657 01ec FFF7FEFF 		bl	sin
+ 1658              	.LVL203:
+ 1659 01f0 53EC102B 		vmov	r2, r3, d0
+ 1660              		.loc 1 327 62 view .LVU339
+ 1661 01f4 8DED040B 		vstr.64	d0, [sp, #16]
+ 1662 01f8 CDE902AB 		strd	r10, [sp, #8]
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 37
+
+
+ 1663 01fc 5046     		mov	r0, r10
+ 1664 01fe 5946     		mov	r1, fp
+ 1665 0200 FFF7FEFF 		bl	__aeabi_dmul
+ 1666              	.LVL204:
+ 1667 0204 CDE90001 		strd	r0, [sp]
+ 1668              		.loc 1 327 74 view .LVU340
+ 1669 0208 0A98     		ldr	r0, [sp, #40]	@ float
+ 1670 020a FFF7FEFF 		bl	__aeabi_f2d
+ 1671              	.LVL205:
+ 1672 020e 41EC180B 		vmov	d8, r0, r1
+ 1673 0212 41EC100B 		vmov	d0, r0, r1
+ 1674 0216 FFF7FEFF 		bl	tan
+ 1675              	.LVL206:
+ 1676 021a 5BEC10AB 		vmov	r10, fp, d0
+ 1677              		.loc 1 327 72 view .LVU341
+ 1678 021e 10EE102A 		vmov	r2, s0	@ int
+ 1679 0222 5B46     		mov	r3, fp
+ 1680 0224 DDE90001 		ldrd	r0, [sp]
+ 1681 0228 FFF7FEFF 		bl	__aeabi_dmul
+ 1682              	.LVL207:
+ 1683 022c 0246     		mov	r2, r0
+ 1684 022e 0B46     		mov	r3, r1
+ 1685              		.loc 1 327 41 view .LVU342
+ 1686 0230 4046     		mov	r0, r8
+ 1687 0232 4946     		mov	r1, r9
+ 1688 0234 FFF7FEFF 		bl	__aeabi_dadd
+ 1689              	.LVL208:
+ 1690 0238 CDE90801 		strd	r0, [sp, #32]
+ 1691              	.LVL209:
+ 1692              		.loc 1 327 103 view .LVU343
+ 1693 023c A068     		ldr	r0, [r4, #8]	@ float
+ 1694 023e FFF7FEFF 		bl	__aeabi_f2d
+ 1695              	.LVL210:
+ 1696 0242 8046     		mov	r8, r0
+ 1697 0244 8946     		mov	r9, r1
+ 1698              		.loc 1 327 108 view .LVU344
+ 1699 0246 B0EE490A 		vmov.f32	s0, s18
+ 1700 024a F0EE690A 		vmov.f32	s1, s19
+ 1701 024e FFF7FEFF 		bl	cos
+ 1702              	.LVL211:
+ 1703 0252 55EC104B 		vmov	r4, r5, d0
+ 1704              	.LVL212:
+ 1705              		.loc 1 327 106 view .LVU345
+ 1706 0256 10EE102A 		vmov	r2, s0	@ int
+ 1707 025a 2B46     		mov	r3, r5
+ 1708 025c 4046     		mov	r0, r8
+ 1709 025e 4946     		mov	r1, r9
+ 1710 0260 FFF7FEFF 		bl	__aeabi_dmul
+ 1711              	.LVL213:
+ 1712 0264 0246     		mov	r2, r0
+ 1713 0266 0B46     		mov	r3, r1
+ 1714              		.loc 1 327 117 view .LVU346
+ 1715 0268 CDE90A23 		strd	r2, [sp, #40]
+ 1716              	.LVL214:
+ 1717              		.loc 1 327 117 view .LVU347
+ 1718 026c 5046     		mov	r0, r10
+ 1719 026e 5946     		mov	r1, fp
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 38
+
+
+ 1720 0270 FFF7FEFF 		bl	__aeabi_dmul
+ 1721              	.LVL215:
+ 1722 0274 0246     		mov	r2, r0
+ 1723 0276 0B46     		mov	r3, r1
+ 1724              		.loc 1 327 85 view .LVU348
+ 1725 0278 DDE90801 		ldrd	r0, [sp, #32]
+ 1726 027c FFF7FEFF 		bl	__aeabi_dadd
+ 1727              	.LVL216:
+ 1728              		.loc 1 327 11 view .LVU349
+ 1729 0280 FFF7FEFF 		bl	__aeabi_d2f
+ 1730              	.LVL217:
+ 1731 0284 0746     		mov	r7, r0	@ float
+ 1732              	.LVL218:
+ 328:Drivers/calc_odometry/Src/odometry.c ****     float theta_dot = angular_rate_dps[1] * cos(phi) - angular_rate_dps[2] * sin(phi);
+ 1733              		.loc 1 328 5 is_stmt 1 view .LVU350
+ 1734              		.loc 1 328 43 is_stmt 0 view .LVU351
+ 1735 0286 2246     		mov	r2, r4
+ 1736 0288 2B46     		mov	r3, r5
+ 1737 028a DDE90201 		ldrd	r0, [sp, #8]
+ 1738              	.LVL219:
+ 1739              		.loc 1 328 43 view .LVU352
+ 1740 028e FFF7FEFF 		bl	__aeabi_dmul
+ 1741              	.LVL220:
+ 1742 0292 0446     		mov	r4, r0
+ 1743 0294 0D46     		mov	r5, r1
+ 1744              	.LVL221:
+ 1745              		.loc 1 328 76 view .LVU353
+ 1746 0296 4246     		mov	r2, r8
+ 1747 0298 4B46     		mov	r3, r9
+ 1748 029a DDE90401 		ldrd	r0, [sp, #16]
+ 1749 029e FFF7FEFF 		bl	__aeabi_dmul
+ 1750              	.LVL222:
+ 1751 02a2 0246     		mov	r2, r0
+ 1752 02a4 0B46     		mov	r3, r1
+ 1753              		.loc 1 328 54 view .LVU354
+ 1754 02a6 2046     		mov	r0, r4
+ 1755 02a8 2946     		mov	r1, r5
+ 1756 02aa FFF7FEFF 		bl	__aeabi_dsub
+ 1757              	.LVL223:
+ 1758              		.loc 1 328 11 view .LVU355
+ 1759 02ae FFF7FEFF 		bl	__aeabi_d2f
+ 1760              	.LVL224:
+ 1761 02b2 8246     		mov	r10, r0	@ float
+ 1762              	.LVL225:
+ 329:Drivers/calc_odometry/Src/odometry.c ****     float psi_dot = angular_rate_dps[1]*sin(phi) / cos(theta) + angular_rate_dps[2] * cos(phi) / co
+ 1763              		.loc 1 329 5 is_stmt 1 view .LVU356
+ 1764              		.loc 1 329 52 is_stmt 0 view .LVU357
+ 1765 02b4 B0EE480A 		vmov.f32	s0, s16
+ 1766 02b8 F0EE680A 		vmov.f32	s1, s17
+ 1767 02bc FFF7FEFF 		bl	cos
+ 1768              	.LVL226:
+ 1769              		.loc 1 329 52 view .LVU358
+ 1770 02c0 55EC104B 		vmov	r4, r5, d0
+ 1771              		.loc 1 329 50 view .LVU359
+ 1772 02c4 10EE102A 		vmov	r2, s0	@ int
+ 1773 02c8 2B46     		mov	r3, r5
+ 1774 02ca DDE90001 		ldrd	r0, [sp]
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 39
+
+
+ 1775 02ce FFF7FEFF 		bl	__aeabi_ddiv
+ 1776              	.LVL227:
+ 1777 02d2 8046     		mov	r8, r0
+ 1778 02d4 8946     		mov	r9, r1
+ 1779              		.loc 1 329 96 view .LVU360
+ 1780 02d6 2246     		mov	r2, r4
+ 1781 02d8 2B46     		mov	r3, r5
+ 1782 02da DDE90A01 		ldrd	r0, [sp, #40]
+ 1783 02de FFF7FEFF 		bl	__aeabi_ddiv
+ 1784              	.LVL228:
+ 1785 02e2 0246     		mov	r2, r0
+ 1786 02e4 0B46     		mov	r3, r1
+ 1787              		.loc 1 329 63 view .LVU361
+ 1788 02e6 4046     		mov	r0, r8
+ 1789 02e8 4946     		mov	r1, r9
+ 1790 02ea FFF7FEFF 		bl	__aeabi_dadd
+ 1791              	.LVL229:
+ 1792              		.loc 1 329 11 view .LVU362
+ 1793 02ee FFF7FEFF 		bl	__aeabi_d2f
+ 1794              	.LVL230:
+ 1795 02f2 0446     		mov	r4, r0	@ float
+ 1796              	.LVL231:
+ 330:Drivers/calc_odometry/Src/odometry.c **** 
+ 331:Drivers/calc_odometry/Src/odometry.c ****     *roll = phi + phi_dot*0.01;
+ 1797              		.loc 1 331 5 is_stmt 1 view .LVU363
+ 1798              		.loc 1 331 26 is_stmt 0 view .LVU364
+ 1799 02f4 3846     		mov	r0, r7	@ float
+ 1800              	.LVL232:
+ 1801              		.loc 1 331 26 view .LVU365
+ 1802 02f6 FFF7FEFF 		bl	__aeabi_f2d
+ 1803              	.LVL233:
+ 1804 02fa 26A3     		adr	r3, .L80+4
+ 1805 02fc D3E90023 		ldrd	r2, [r3]
+ 1806 0300 FFF7FEFF 		bl	__aeabi_dmul
+ 1807              	.LVL234:
+ 1808 0304 0246     		mov	r2, r0
+ 1809 0306 0B46     		mov	r3, r1
+ 1810              		.loc 1 331 17 view .LVU366
+ 1811 0308 51EC190B 		vmov	r0, r1, d9
+ 1812 030c FFF7FEFF 		bl	__aeabi_dadd
+ 1813              	.LVL235:
+ 1814 0310 FFF7FEFF 		bl	__aeabi_d2f
+ 1815              	.LVL236:
+ 1816              		.loc 1 331 11 view .LVU367
+ 1817 0314 079B     		ldr	r3, [sp, #28]
+ 1818 0316 1860     		str	r0, [r3]	@ float
+ 332:Drivers/calc_odometry/Src/odometry.c ****     *pitch  = theta + theta_dot*0.01;
+ 1819              		.loc 1 332 5 is_stmt 1 view .LVU368
+ 1820              		.loc 1 332 32 is_stmt 0 view .LVU369
+ 1821 0318 5046     		mov	r0, r10	@ float
+ 1822 031a FFF7FEFF 		bl	__aeabi_f2d
+ 1823              	.LVL237:
+ 1824 031e 1DA3     		adr	r3, .L80+4
+ 1825 0320 D3E90023 		ldrd	r2, [r3]
+ 1826 0324 FFF7FEFF 		bl	__aeabi_dmul
+ 1827              	.LVL238:
+ 1828 0328 0246     		mov	r2, r0
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 40
+
+
+ 1829 032a 0B46     		mov	r3, r1
+ 1830              		.loc 1 332 21 view .LVU370
+ 1831 032c 51EC180B 		vmov	r0, r1, d8
+ 1832 0330 FFF7FEFF 		bl	__aeabi_dadd
+ 1833              	.LVL239:
+ 1834 0334 FFF7FEFF 		bl	__aeabi_d2f
+ 1835              	.LVL240:
+ 1836              		.loc 1 332 13 view .LVU371
+ 1837 0338 1A9B     		ldr	r3, [sp, #104]
+ 1838 033a 1860     		str	r0, [r3]	@ float
+ 333:Drivers/calc_odometry/Src/odometry.c ****     *yaw = psi + psi_dot*0.01;
+ 1839              		.loc 1 333 5 is_stmt 1 view .LVU372
+ 1840              		.loc 1 333 25 is_stmt 0 view .LVU373
+ 1841 033c 2046     		mov	r0, r4	@ float
+ 1842 033e FFF7FEFF 		bl	__aeabi_f2d
+ 1843              	.LVL241:
+ 1844 0342 14A3     		adr	r3, .L80+4
+ 1845 0344 D3E90023 		ldrd	r2, [r3]
+ 1846 0348 FFF7FEFF 		bl	__aeabi_dmul
+ 1847              	.LVL242:
+ 1848 034c 0446     		mov	r4, r0
+ 1849              	.LVL243:
+ 1850              		.loc 1 333 25 view .LVU374
+ 1851 034e 0D46     		mov	r5, r1
+ 1852              		.loc 1 333 16 view .LVU375
+ 1853 0350 3046     		mov	r0, r6	@ float
+ 1854 0352 FFF7FEFF 		bl	__aeabi_f2d
+ 1855              	.LVL244:
+ 1856 0356 2246     		mov	r2, r4
+ 1857 0358 2B46     		mov	r3, r5
+ 1858 035a FFF7FEFF 		bl	__aeabi_dadd
+ 1859              	.LVL245:
+ 1860 035e FFF7FEFF 		bl	__aeabi_d2f
+ 1861              	.LVL246:
+ 1862 0362 07EE900A 		vmov	s15, r0
+ 1863              		.loc 1 333 10 view .LVU376
+ 1864 0366 1B9B     		ldr	r3, [sp, #108]
+ 1865 0368 1860     		str	r0, [r3]	@ float
+ 334:Drivers/calc_odometry/Src/odometry.c **** 
+ 335:Drivers/calc_odometry/Src/odometry.c ****     if (*yaw < 0) {
+ 1866              		.loc 1 335 5 is_stmt 1 view .LVU377
+ 1867              		.loc 1 335 8 is_stmt 0 view .LVU378
+ 1868 036a F5EEC07A 		vcmpe.f32	s15, #0
+ 1869 036e F1EE10FA 		vmrs	APSR_nzcv, FPSCR
+ 1870 0372 04D4     		bmi	.L79
+ 1871              	.L74:
+ 336:Drivers/calc_odometry/Src/odometry.c ****     	*yaw = *yaw + 2*PI;
+ 337:Drivers/calc_odometry/Src/odometry.c ****     }
+ 338:Drivers/calc_odometry/Src/odometry.c **** 
+ 339:Drivers/calc_odometry/Src/odometry.c **** }
+ 1872              		.loc 1 339 1 view .LVU379
+ 1873 0374 0DB0     		add	sp, sp, #52
+ 1874              	.LCFI18:
+ 1875              		.cfi_remember_state
+ 1876              		.cfi_def_cfa_offset 52
+ 1877              		@ sp needed
+ 1878 0376 BDEC048B 		vldm	sp!, {d8-d9}
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 41
+
+
+ 1879              	.LCFI19:
+ 1880              		.cfi_restore 82
+ 1881              		.cfi_restore 83
+ 1882              		.cfi_restore 80
+ 1883              		.cfi_restore 81
+ 1884              		.cfi_def_cfa_offset 36
+ 1885 037a BDE8F08F 		pop	{r4, r5, r6, r7, r8, r9, r10, fp, pc}
+ 1886              	.LVL247:
+ 1887              	.L79:
+ 1888              	.LCFI20:
+ 1889              		.cfi_restore_state
+ 336:Drivers/calc_odometry/Src/odometry.c ****     	*yaw = *yaw + 2*PI;
+ 1890              		.loc 1 336 6 is_stmt 1 view .LVU380
+ 336:Drivers/calc_odometry/Src/odometry.c ****     	*yaw = *yaw + 2*PI;
+ 1891              		.loc 1 336 18 is_stmt 0 view .LVU381
+ 1892 037e 9FED047A 		vldr.32	s14, .L80
+ 1893 0382 77EE877A 		vadd.f32	s15, s15, s14
+ 336:Drivers/calc_odometry/Src/odometry.c ****     	*yaw = *yaw + 2*PI;
+ 1894              		.loc 1 336 11 view .LVU382
+ 1895 0386 C3ED007A 		vstr.32	s15, [r3]
+ 1896              		.loc 1 339 1 view .LVU383
+ 1897 038a F3E7     		b	.L74
+ 1898              	.L81:
+ 1899 038c AFF30080 		.align	3
+ 1900              	.L80:
+ 1901 0390 DB0FC940 		.word	1086918619
+ 1902 0394 7B14AE47 		.word	1202590843
+ 1903 0398 E17A843F 		.word	1065646817
+ 1904              		.cfi_endproc
+ 1905              	.LFE147:
+ 1907              		.section	.text.theta_init,"ax",%progbits
+ 1908              		.align	1
+ 1909              		.global	theta_init
+ 1910              		.syntax unified
+ 1911              		.thumb
+ 1912              		.thumb_func
+ 1914              	theta_init:
+ 1915              	.LVL248:
+ 1916              	.LFB134:
+  52:Drivers/calc_odometry/Src/odometry.c **** 	  lsm303agr_init(&dev_ctx_xl, &dev_ctx_mg);
+ 1917              		.loc 1 52 38 is_stmt 1 view -0
+ 1918              		.cfi_startproc
+ 1919              		@ args = 0, pretend = 0, frame = 8
+ 1920              		@ frame_needed = 0, uses_anonymous_args = 0
+  52:Drivers/calc_odometry/Src/odometry.c **** 	  lsm303agr_init(&dev_ctx_xl, &dev_ctx_mg);
+ 1921              		.loc 1 52 38 is_stmt 0 view .LVU385
+ 1922 0000 2DE9F04F 		push	{r4, r5, r6, r7, r8, r9, r10, fp, lr}
+ 1923              	.LCFI21:
+ 1924              		.cfi_def_cfa_offset 36
+ 1925              		.cfi_offset 4, -36
+ 1926              		.cfi_offset 5, -32
+ 1927              		.cfi_offset 6, -28
+ 1928              		.cfi_offset 7, -24
+ 1929              		.cfi_offset 8, -20
+ 1930              		.cfi_offset 9, -16
+ 1931              		.cfi_offset 10, -12
+ 1932              		.cfi_offset 11, -8
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 42
+
+
+ 1933              		.cfi_offset 14, -4
+ 1934 0004 85B0     		sub	sp, sp, #20
+ 1935              	.LCFI22:
+ 1936              		.cfi_def_cfa_offset 56
+ 1937 0006 0390     		str	r0, [sp, #12]
+  53:Drivers/calc_odometry/Src/odometry.c **** 	  i3g4250d_init(&dev_ctx_gyro);
+ 1938              		.loc 1 53 4 is_stmt 1 view .LVU386
+ 1939 0008 DFF89480 		ldr	r8, .L84+28
+ 1940 000c 1D4D     		ldr	r5, .L84
+ 1941 000e 4146     		mov	r1, r8
+ 1942 0010 2846     		mov	r0, r5
+ 1943              	.LVL249:
+  53:Drivers/calc_odometry/Src/odometry.c **** 	  i3g4250d_init(&dev_ctx_gyro);
+ 1944              		.loc 1 53 4 is_stmt 0 view .LVU387
+ 1945 0012 FFF7FEFF 		bl	lsm303agr_init
+ 1946              	.LVL250:
+  54:Drivers/calc_odometry/Src/odometry.c **** 
+ 1947              		.loc 1 54 4 is_stmt 1 view .LVU388
+ 1948 0016 1C4E     		ldr	r6, .L84+4
+ 1949 0018 3046     		mov	r0, r6
+ 1950 001a FFF7FEFF 		bl	i3g4250d_init
+ 1951              	.LVL251:
+  56:Drivers/calc_odometry/Src/odometry.c **** 
+ 1952              		.loc 1 56 4 view .LVU389
+ 1953 001e DFF884B0 		ldr	fp, .L84+32
+ 1954 0022 DFF884A0 		ldr	r10, .L84+36
+ 1955 0026 5A46     		mov	r2, fp
+ 1956 0028 5146     		mov	r1, r10
+ 1957 002a 3046     		mov	r0, r6
+ 1958 002c FFF7FEFF 		bl	i3G4250D_calib_gyro
+ 1959              	.LVL252:
+  58:Drivers/calc_odometry/Src/odometry.c **** 
+ 1960              		.loc 1 58 4 view .LVU390
+ 1961 0030 DFF87890 		ldr	r9, .L84+40
+ 1962 0034 154C     		ldr	r4, .L84+8
+ 1963 0036 4A46     		mov	r2, r9
+ 1964 0038 2146     		mov	r1, r4
+ 1965 003a 2846     		mov	r0, r5
+ 1966 003c FFF7FEFF 		bl	lsm303agr_calib_xl
+ 1967              	.LVL253:
+  60:Drivers/calc_odometry/Src/odometry.c **** 
+ 1968              		.loc 1 60 4 view .LVU391
+ 1969 0040 134F     		ldr	r7, .L84+12
+ 1970 0042 3946     		mov	r1, r7
+ 1971 0044 4046     		mov	r0, r8
+ 1972 0046 FFF7FEFF 		bl	lsm303agr_read_mag
+ 1973              	.LVL254:
+  62:Drivers/calc_odometry/Src/odometry.c **** 
+ 1974              		.loc 1 62 4 view .LVU392
+ 1975 004a DFF86480 		ldr	r8, .L84+44
+ 1976 004e 4346     		mov	r3, r8
+ 1977 0050 5A46     		mov	r2, fp
+ 1978 0052 5146     		mov	r1, r10
+ 1979 0054 3046     		mov	r0, r6
+ 1980 0056 FFF7FEFF 		bl	i3g4250d_read_norm_gyro
+ 1981              	.LVL255:
+  64:Drivers/calc_odometry/Src/odometry.c **** 
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 43
+
+
+ 1982              		.loc 1 64 4 view .LVU393
+ 1983 005a 4A46     		mov	r2, r9
+ 1984 005c 2146     		mov	r1, r4
+ 1985 005e 2846     		mov	r0, r5
+ 1986 0060 FFF7FEFF 		bl	lsm303agr_read_calibrated_xl
+ 1987              	.LVL256:
+  66:Drivers/calc_odometry/Src/odometry.c **** 			  data_raw_acceleration, data_raw_magnetic, angular_rate_dps,
+ 1988              		.loc 1 66 4 view .LVU394
+ 1989 0064 0B4D     		ldr	r5, .L84+16
+ 1990 0066 0195     		str	r5, [sp, #4]
+ 1991 0068 0B4B     		ldr	r3, .L84+20
+ 1992 006a 0093     		str	r3, [sp]
+ 1993 006c 0B4B     		ldr	r3, .L84+24
+ 1994 006e 4246     		mov	r2, r8
+ 1995 0070 3946     		mov	r1, r7
+ 1996 0072 2046     		mov	r0, r4
+ 1997 0074 FFF7FEFF 		bl	calc_yaw_pitch_roll_9dof
+ 1998              	.LVL257:
+  71:Drivers/calc_odometry/Src/odometry.c **** }
+ 1999              		.loc 1 71 4 view .LVU395
+  71:Drivers/calc_odometry/Src/odometry.c **** }
+ 2000              		.loc 1 71 20 is_stmt 0 view .LVU396
+ 2001 0078 2B68     		ldr	r3, [r5]	@ float
+ 2002 007a 039A     		ldr	r2, [sp, #12]
+ 2003 007c 1361     		str	r3, [r2, #16]	@ float
+  72:Drivers/calc_odometry/Src/odometry.c **** 
+ 2004              		.loc 1 72 1 view .LVU397
+ 2005 007e 05B0     		add	sp, sp, #20
+ 2006              	.LCFI23:
+ 2007              		.cfi_def_cfa_offset 36
+ 2008              		@ sp needed
+ 2009 0080 BDE8F08F 		pop	{r4, r5, r6, r7, r8, r9, r10, fp, pc}
+ 2010              	.LVL258:
+ 2011              	.L85:
+  72:Drivers/calc_odometry/Src/odometry.c **** 
+ 2012              		.loc 1 72 1 view .LVU398
+ 2013              		.align	2
+ 2014              	.L84:
+ 2015 0084 00000000 		.word	.LANCHOR3
+ 2016 0088 00000000 		.word	.LANCHOR4
+ 2017 008c 00000000 		.word	.LANCHOR8
+ 2018 0090 00000000 		.word	.LANCHOR9
+ 2019 0094 00000000 		.word	.LANCHOR1
+ 2020 0098 00000000 		.word	.LANCHOR12
+ 2021 009c 00000000 		.word	.LANCHOR11
+ 2022 00a0 00000000 		.word	.LANCHOR2
+ 2023 00a4 00000000 		.word	.LANCHOR5
+ 2024 00a8 00000000 		.word	.LANCHOR6
+ 2025 00ac 00000000 		.word	.LANCHOR7
+ 2026 00b0 00000000 		.word	.LANCHOR10
+ 2027              		.cfi_endproc
+ 2028              	.LFE134:
+ 2030              		.section	.text.odometry_init,"ax",%progbits
+ 2031              		.align	1
+ 2032              		.global	odometry_init
+ 2033              		.syntax unified
+ 2034              		.thumb
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 44
+
+
+ 2035              		.thumb_func
+ 2037              	odometry_init:
+ 2038              	.LFB133:
+  30:Drivers/calc_odometry/Src/odometry.c **** 	odometry_ctx_t *ctx = &dev_ctx_odometry;
+ 2039              		.loc 1 30 22 is_stmt 1 view -0
+ 2040              		.cfi_startproc
+ 2041              		@ args = 0, pretend = 0, frame = 0
+ 2042              		@ frame_needed = 0, uses_anonymous_args = 0
+ 2043 0000 10B5     		push	{r4, lr}
+ 2044              	.LCFI24:
+ 2045              		.cfi_def_cfa_offset 8
+ 2046              		.cfi_offset 4, -8
+ 2047              		.cfi_offset 14, -4
+  31:Drivers/calc_odometry/Src/odometry.c **** 
+ 2048              		.loc 1 31 2 view .LVU400
+ 2049              	.LVL259:
+  33:Drivers/calc_odometry/Src/odometry.c **** 	__HAL_TIM_SetCounter(&htim2, 32768);
+ 2050              		.loc 1 33 2 view .LVU401
+ 2051 0002 1248     		ldr	r0, .L88
+ 2052 0004 0268     		ldr	r2, [r0]
+ 2053 0006 4FF40043 		mov	r3, #32768
+ 2054 000a 5362     		str	r3, [r2, #36]
+  34:Drivers/calc_odometry/Src/odometry.c **** 
+ 2055              		.loc 1 34 2 view .LVU402
+ 2056 000c 104C     		ldr	r4, .L88+4
+ 2057 000e 2268     		ldr	r2, [r4]
+ 2058 0010 5362     		str	r3, [r2, #36]
+  36:Drivers/calc_odometry/Src/odometry.c **** 	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);
+ 2059              		.loc 1 36 2 view .LVU403
+ 2060 0012 3C21     		movs	r1, #60
+ 2061 0014 FFF7FEFF 		bl	HAL_TIM_Encoder_Start
+ 2062              	.LVL260:
+  37:Drivers/calc_odometry/Src/odometry.c **** 	HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
+ 2063              		.loc 1 37 2 view .LVU404
+ 2064 0018 0421     		movs	r1, #4
+ 2065 001a 0E48     		ldr	r0, .L88+8
+ 2066 001c FFF7FEFF 		bl	HAL_TIM_PWM_Start
+ 2067              	.LVL261:
+  38:Drivers/calc_odometry/Src/odometry.c **** 	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+ 2068              		.loc 1 38 2 view .LVU405
+ 2069 0020 3C21     		movs	r1, #60
+ 2070 0022 2046     		mov	r0, r4
+ 2071 0024 FFF7FEFF 		bl	HAL_TIM_Encoder_Start
+ 2072              	.LVL262:
+  39:Drivers/calc_odometry/Src/odometry.c **** 
+ 2073              		.loc 1 39 2 view .LVU406
+ 2074 0028 0021     		movs	r1, #0
+ 2075 002a 0B48     		ldr	r0, .L88+12
+ 2076 002c FFF7FEFF 		bl	HAL_TIM_PWM_Start
+ 2077              	.LVL263:
+  41:Drivers/calc_odometry/Src/odometry.c **** 
+ 2078              		.loc 1 41 2 view .LVU407
+ 2079 0030 0A4C     		ldr	r4, .L88+16
+ 2080 0032 2046     		mov	r0, r4
+ 2081 0034 FFF7FEFF 		bl	theta_init
+ 2082              	.LVL264:
+  43:Drivers/calc_odometry/Src/odometry.c **** 	ctx->y = 0;
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 45
+
+
+ 2083              		.loc 1 43 2 view .LVU408
+  43:Drivers/calc_odometry/Src/odometry.c **** 	ctx->y = 0;
+ 2084              		.loc 1 43 9 is_stmt 0 view .LVU409
+ 2085 0038 0023     		movs	r3, #0
+ 2086 003a 2360     		str	r3, [r4]	@ float
+  44:Drivers/calc_odometry/Src/odometry.c **** 	ctx->theta = 0;
+ 2087              		.loc 1 44 2 is_stmt 1 view .LVU410
+  44:Drivers/calc_odometry/Src/odometry.c **** 	ctx->theta = 0;
+ 2088              		.loc 1 44 9 is_stmt 0 view .LVU411
+ 2089 003c 6360     		str	r3, [r4, #4]	@ float
+  45:Drivers/calc_odometry/Src/odometry.c **** 	ctx->dt = 0.01;
+ 2090              		.loc 1 45 2 is_stmt 1 view .LVU412
+  45:Drivers/calc_odometry/Src/odometry.c **** 	ctx->dt = 0.01;
+ 2091              		.loc 1 45 13 is_stmt 0 view .LVU413
+ 2092 003e A360     		str	r3, [r4, #8]	@ float
+  46:Drivers/calc_odometry/Src/odometry.c **** 
+ 2093              		.loc 1 46 2 is_stmt 1 view .LVU414
+  46:Drivers/calc_odometry/Src/odometry.c **** 
+ 2094              		.loc 1 46 10 is_stmt 0 view .LVU415
+ 2095 0040 074A     		ldr	r2, .L88+20
+ 2096 0042 E260     		str	r2, [r4, #12]	@ float
+  48:Drivers/calc_odometry/Src/odometry.c **** 	ctx->vel_l = 0;
+ 2097              		.loc 1 48 2 is_stmt 1 view .LVU416
+  48:Drivers/calc_odometry/Src/odometry.c **** 	ctx->vel_l = 0;
+ 2098              		.loc 1 48 13 is_stmt 0 view .LVU417
+ 2099 0044 6361     		str	r3, [r4, #20]	@ float
+  49:Drivers/calc_odometry/Src/odometry.c **** }
+ 2100              		.loc 1 49 2 is_stmt 1 view .LVU418
+  49:Drivers/calc_odometry/Src/odometry.c **** }
+ 2101              		.loc 1 49 13 is_stmt 0 view .LVU419
+ 2102 0046 A361     		str	r3, [r4, #24]	@ float
+  50:Drivers/calc_odometry/Src/odometry.c **** 
+ 2103              		.loc 1 50 1 view .LVU420
+ 2104 0048 10BD     		pop	{r4, pc}
+ 2105              	.L89:
+ 2106 004a 00BF     		.align	2
+ 2107              	.L88:
+ 2108 004c 00000000 		.word	htim4
+ 2109 0050 00000000 		.word	htim2
+ 2110 0054 00000000 		.word	htim3
+ 2111 0058 00000000 		.word	htim1
+ 2112 005c 00000000 		.word	.LANCHOR0
+ 2113 0060 0AD7233C 		.word	1008981770
+ 2114              		.cfi_endproc
+ 2115              	.LFE133:
+ 2117              		.section	.text.update_yaw,"ax",%progbits
+ 2118              		.align	1
+ 2119              		.global	update_yaw
+ 2120              		.syntax unified
+ 2121              		.thumb
+ 2122              		.thumb_func
+ 2124              	update_yaw:
+ 2125              	.LFB135:
+  74:Drivers/calc_odometry/Src/odometry.c **** 	prev_yaw = yaw_9dof;
+ 2126              		.loc 1 74 19 is_stmt 1 view -0
+ 2127              		.cfi_startproc
+ 2128              		@ args = 0, pretend = 0, frame = 0
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 46
+
+
+ 2129              		@ frame_needed = 0, uses_anonymous_args = 0
+ 2130 0000 F0B5     		push	{r4, r5, r6, r7, lr}
+ 2131              	.LCFI25:
+ 2132              		.cfi_def_cfa_offset 20
+ 2133              		.cfi_offset 4, -20
+ 2134              		.cfi_offset 5, -16
+ 2135              		.cfi_offset 6, -12
+ 2136              		.cfi_offset 7, -8
+ 2137              		.cfi_offset 14, -4
+ 2138 0002 83B0     		sub	sp, sp, #12
+ 2139              	.LCFI26:
+ 2140              		.cfi_def_cfa_offset 32
+  75:Drivers/calc_odometry/Src/odometry.c **** 
+ 2141              		.loc 1 75 2 view .LVU422
+  75:Drivers/calc_odometry/Src/odometry.c **** 
+ 2142              		.loc 1 75 11 is_stmt 0 view .LVU423
+ 2143 0004 104F     		ldr	r7, .L92
+ 2144 0006 3A68     		ldr	r2, [r7]	@ float
+ 2145 0008 104B     		ldr	r3, .L92+4
+ 2146 000a 1A60     		str	r2, [r3]	@ float
+  77:Drivers/calc_odometry/Src/odometry.c **** 	lsm303agr_read_calibrated_xl(&dev_ctx_xl, data_raw_acceleration, delta_acceleration);
+ 2147              		.loc 1 77 2 is_stmt 1 view .LVU424
+ 2148 000c 104D     		ldr	r5, .L92+8
+ 2149 000e 2946     		mov	r1, r5
+ 2150 0010 1048     		ldr	r0, .L92+12
+ 2151 0012 FFF7FEFF 		bl	lsm303agr_read_mag
+ 2152              	.LVL265:
+  78:Drivers/calc_odometry/Src/odometry.c **** 	i3g4250d_read_norm_gyro(&dev_ctx_gyro, data_raw_angular_rate, delta_gyro, angular_rate_dps);
+ 2153              		.loc 1 78 2 view .LVU425
+ 2154 0016 104C     		ldr	r4, .L92+16
+ 2155 0018 104A     		ldr	r2, .L92+20
+ 2156 001a 2146     		mov	r1, r4
+ 2157 001c 1048     		ldr	r0, .L92+24
+ 2158 001e FFF7FEFF 		bl	lsm303agr_read_calibrated_xl
+ 2159              	.LVL266:
+  79:Drivers/calc_odometry/Src/odometry.c **** 
+ 2160              		.loc 1 79 2 view .LVU426
+ 2161 0022 104E     		ldr	r6, .L92+28
+ 2162 0024 3346     		mov	r3, r6
+ 2163 0026 104A     		ldr	r2, .L92+32
+ 2164 0028 1049     		ldr	r1, .L92+36
+ 2165 002a 1148     		ldr	r0, .L92+40
+ 2166 002c FFF7FEFF 		bl	i3g4250d_read_norm_gyro
+ 2167              	.LVL267:
+  81:Drivers/calc_odometry/Src/odometry.c **** 	  data_raw_acceleration, data_raw_magnetic, angular_rate_dps,
+ 2168              		.loc 1 81 2 view .LVU427
+ 2169 0030 0197     		str	r7, [sp, #4]
+ 2170 0032 104B     		ldr	r3, .L92+44
+ 2171 0034 0093     		str	r3, [sp]
+ 2172 0036 104B     		ldr	r3, .L92+48
+ 2173 0038 3246     		mov	r2, r6
+ 2174 003a 2946     		mov	r1, r5
+ 2175 003c 2046     		mov	r0, r4
+ 2176 003e FFF7FEFF 		bl	calc_yaw_pitch_roll_9dof
+ 2177              	.LVL268:
+  86:Drivers/calc_odometry/Src/odometry.c **** 
+ 2178              		.loc 1 86 1 is_stmt 0 view .LVU428
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 47
+
+
+ 2179 0042 03B0     		add	sp, sp, #12
+ 2180              	.LCFI27:
+ 2181              		.cfi_def_cfa_offset 20
+ 2182              		@ sp needed
+ 2183 0044 F0BD     		pop	{r4, r5, r6, r7, pc}
+ 2184              	.L93:
+ 2185 0046 00BF     		.align	2
+ 2186              	.L92:
+ 2187 0048 00000000 		.word	.LANCHOR1
+ 2188 004c 00000000 		.word	.LANCHOR13
+ 2189 0050 00000000 		.word	.LANCHOR9
+ 2190 0054 00000000 		.word	.LANCHOR2
+ 2191 0058 00000000 		.word	.LANCHOR8
+ 2192 005c 00000000 		.word	.LANCHOR7
+ 2193 0060 00000000 		.word	.LANCHOR3
+ 2194 0064 00000000 		.word	.LANCHOR10
+ 2195 0068 00000000 		.word	.LANCHOR5
+ 2196 006c 00000000 		.word	.LANCHOR6
+ 2197 0070 00000000 		.word	.LANCHOR4
+ 2198 0074 00000000 		.word	.LANCHOR12
+ 2199 0078 00000000 		.word	.LANCHOR11
+ 2200              		.cfi_endproc
+ 2201              	.LFE135:
+ 2203              		.global	yaw_step
+ 2204              		.global	local_yaw
+ 2205              		.global	global_yaw
+ 2206              		.global	yaw_9dof
+ 2207              		.global	pitch_9dof
+ 2208              		.global	roll_9dof
+ 2209              		.global	init_yaw
+ 2210              		.global	prev_yaw
+ 2211              		.global	dev_ctx_mg
+ 2212              		.global	dev_ctx_xl
+ 2213              		.global	dev_ctx_gyro
+ 2214              		.global	data_raw_angular_rate
+ 2215              		.global	data_raw_acceleration
+ 2216              		.global	data_raw_magnetic
+ 2217              		.global	delta_acceleration
+ 2218              		.global	delta_gyro
+ 2219              		.global	angular_rate_dps
+ 2220              		.global	dev_ctx_odometry
+ 2221              		.section	.bss.angular_rate_dps,"aw",%nobits
+ 2222              		.align	2
+ 2223              		.set	.LANCHOR10,. + 0
+ 2226              	angular_rate_dps:
+ 2227 0000 00000000 		.space	12
+ 2227      00000000 
+ 2227      00000000 
+ 2228              		.section	.bss.data_raw_angular_rate,"aw",%nobits
+ 2229              		.align	2
+ 2230              		.set	.LANCHOR6,. + 0
+ 2233              	data_raw_angular_rate:
+ 2234 0000 00000000 		.space	6
+ 2234      0000
+ 2235              		.section	.bss.data_raw_magnetic,"aw",%nobits
+ 2236              		.align	2
+ 2237              		.set	.LANCHOR9,. + 0
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 48
+
+
+ 2240              	data_raw_magnetic:
+ 2241 0000 00000000 		.space	6
+ 2241      0000
+ 2242              		.section	.bss.delta_acceleration,"aw",%nobits
+ 2243              		.align	2
+ 2244              		.set	.LANCHOR7,. + 0
+ 2247              	delta_acceleration:
+ 2248 0000 00000000 		.space	12
+ 2248      00000000 
+ 2248      00000000 
+ 2249              		.section	.bss.delta_gyro,"aw",%nobits
+ 2250              		.align	2
+ 2251              		.set	.LANCHOR5,. + 0
+ 2254              	delta_gyro:
+ 2255 0000 00000000 		.space	12
+ 2255      00000000 
+ 2255      00000000 
+ 2256              		.section	.bss.dev_ctx_gyro,"aw",%nobits
+ 2257              		.align	2
+ 2258              		.set	.LANCHOR4,. + 0
+ 2261              	dev_ctx_gyro:
+ 2262 0000 00000000 		.space	20
+ 2262      00000000 
+ 2262      00000000 
+ 2262      00000000 
+ 2262      00000000 
+ 2263              		.section	.bss.dev_ctx_mg,"aw",%nobits
+ 2264              		.align	2
+ 2265              		.set	.LANCHOR2,. + 0
+ 2268              	dev_ctx_mg:
+ 2269 0000 00000000 		.space	20
+ 2269      00000000 
+ 2269      00000000 
+ 2269      00000000 
+ 2269      00000000 
+ 2270              		.section	.bss.dev_ctx_odometry,"aw",%nobits
+ 2271              		.align	2
+ 2272              		.set	.LANCHOR0,. + 0
+ 2275              	dev_ctx_odometry:
+ 2276 0000 00000000 		.space	36
+ 2276      00000000 
+ 2276      00000000 
+ 2276      00000000 
+ 2276      00000000 
+ 2277              		.section	.bss.dev_ctx_xl,"aw",%nobits
+ 2278              		.align	2
+ 2279              		.set	.LANCHOR3,. + 0
+ 2282              	dev_ctx_xl:
+ 2283 0000 00000000 		.space	20
+ 2283      00000000 
+ 2283      00000000 
+ 2283      00000000 
+ 2283      00000000 
+ 2284              		.section	.bss.global_yaw,"aw",%nobits
+ 2285              		.align	2
+ 2288              	global_yaw:
+ 2289 0000 00000000 		.space	4
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 49
+
+
+ 2290              		.section	.bss.init_yaw,"aw",%nobits
+ 2291              		.align	2
+ 2294              	init_yaw:
+ 2295 0000 00000000 		.space	4
+ 2296              		.section	.bss.local_yaw,"aw",%nobits
+ 2297              		.align	2
+ 2300              	local_yaw:
+ 2301 0000 00000000 		.space	4
+ 2302              		.section	.bss.pitch_9dof,"aw",%nobits
+ 2303              		.align	2
+ 2304              		.set	.LANCHOR12,. + 0
+ 2307              	pitch_9dof:
+ 2308 0000 00000000 		.space	4
+ 2309              		.section	.bss.prev_yaw,"aw",%nobits
+ 2310              		.align	2
+ 2311              		.set	.LANCHOR13,. + 0
+ 2314              	prev_yaw:
+ 2315 0000 00000000 		.space	4
+ 2316              		.section	.bss.roll_9dof,"aw",%nobits
+ 2317              		.align	2
+ 2318              		.set	.LANCHOR11,. + 0
+ 2321              	roll_9dof:
+ 2322 0000 00000000 		.space	4
+ 2323              		.section	.bss.yaw_9dof,"aw",%nobits
+ 2324              		.align	2
+ 2325              		.set	.LANCHOR1,. + 0
+ 2328              	yaw_9dof:
+ 2329 0000 00000000 		.space	4
+ 2330              		.section	.bss.yaw_step,"aw",%nobits
+ 2331              		.align	2
+ 2334              	yaw_step:
+ 2335 0000 00000000 		.space	4
+ 2336              		.section	.data.data_raw_acceleration,"aw"
+ 2337              		.align	2
+ 2338              		.set	.LANCHOR8,. + 0
+ 2341              	data_raw_acceleration:
+ 2342 0000 0000     		.short	0
+ 2343 0002 0000     		.short	0
+ 2344 0004 DC3F     		.short	16348
+ 2345              		.text
+ 2346              	.Letext0:
+ 2347              		.file 2 "d:\\stm32cubeide_1.10.1\\stm32cubeide\\plugins\\com.st.stm32cube.ide.mcu.externaltools.gn
+ 2348              		.file 3 "d:\\stm32cubeide_1.10.1\\stm32cubeide\\plugins\\com.st.stm32cube.ide.mcu.externaltools.gn
+ 2349              		.file 4 "micro_ros_stm32cubemx_utils/microros_static_library/libmicroros/microros_include/geometry
+ 2350              		.file 5 "micro_ros_stm32cubemx_utils/microros_static_library/libmicroros/microros_include/geometry
+ 2351              		.file 6 "micro_ros_stm32cubemx_utils/microros_static_library/libmicroros/microros_include/firmware
+ 2352              		.file 7 "Drivers/CMSIS/Device/ST/STM32F4xx/Include/stm32f411xe.h"
+ 2353              		.file 8 "Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_def.h"
+ 2354              		.file 9 "Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_gpio.h"
+ 2355              		.file 10 "Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_dma.h"
+ 2356              		.file 11 "Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_tim.h"
+ 2357              		.file 12 "Drivers/i3g4250d/Inc/i3g4250d_reg.h"
+ 2358              		.file 13 "Drivers/calc_odometry/Inc/odometry.h"
+ 2359              		.file 14 "d:\\stm32cubeide_1.10.1\\stm32cubeide\\plugins\\com.st.stm32cube.ide.mcu.externaltools.g
+ 2360              		.file 15 "Drivers/lsm303agr/Inc/lsm303agr_reg.h"
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 50
+
+
+DEFINED SYMBOLS
+                            *ABS*:0000000000000000 odometry.c
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:20     .text.get_odom_msg:0000000000000000 $t
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:26     .text.get_odom_msg:0000000000000000 get_odom_msg
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:72     .text.get_odom_msg:000000000000002c $d
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:77     .text.odometry_pid_init:0000000000000000 $t
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:83     .text.odometry_pid_init:0000000000000000 odometry_pid_init
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:121    .text.update_vel_wheels:0000000000000000 $t
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:127    .text.update_vel_wheels:0000000000000000 update_vel_wheels
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:356    .text.update_vel_wheels:0000000000000158 $d
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:370    .text.set_vel_wheels:0000000000000000 $t
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:376    .text.set_vel_wheels:0000000000000000 set_vel_wheels
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:492    .text.set_vel_wheels:00000000000000a0 $d
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:501    .text.pid_compute:0000000000000000 $t
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:507    .text.pid_compute:0000000000000000 pid_compute
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:571    .text.calc_angular_vel:0000000000000000 $t
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:577    .text.calc_angular_vel:0000000000000000 calc_angular_vel
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:591    .text.calc_wheels_speed:0000000000000000 $t
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:597    .text.calc_wheels_speed:0000000000000000 calc_wheels_speed
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:641    .text.calc_wheels_speed:0000000000000034 $d
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:647    .text.run_step:0000000000000000 $t
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:653    .text.run_step:0000000000000000 run_step
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:782    .text.run_step:00000000000000d0 $d
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:790    .text.calc_theta:0000000000000000 $t
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:796    .text.calc_theta:0000000000000000 calc_theta
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:840    .text.calc_theta:0000000000000034 $d
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:848    .text.update_step:0000000000000000 $t
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:854    .text.update_step:0000000000000000 update_step
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:1024   .text.update_step:00000000000000f8 $d
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:1039   .text.calc_yaw_pitch_roll_6dof:0000000000000000 $t
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:1045   .text.calc_yaw_pitch_roll_6dof:0000000000000000 calc_yaw_pitch_roll_6dof
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:1358   .text.calc_yaw_pitch_roll_6dof:0000000000000220 $d
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:1363   .text.calc_yaw_pitch_roll_9dof:0000000000000000 $t
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:1369   .text.calc_yaw_pitch_roll_9dof:0000000000000000 calc_yaw_pitch_roll_9dof
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:1901   .text.calc_yaw_pitch_roll_9dof:0000000000000390 $d
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:1908   .text.theta_init:0000000000000000 $t
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:1914   .text.theta_init:0000000000000000 theta_init
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2015   .text.theta_init:0000000000000084 $d
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2031   .text.odometry_init:0000000000000000 $t
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2037   .text.odometry_init:0000000000000000 odometry_init
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2108   .text.odometry_init:000000000000004c $d
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2118   .text.update_yaw:0000000000000000 $t
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2124   .text.update_yaw:0000000000000000 update_yaw
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2187   .text.update_yaw:0000000000000048 $d
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2334   .bss.yaw_step:0000000000000000 yaw_step
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2300   .bss.local_yaw:0000000000000000 local_yaw
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2288   .bss.global_yaw:0000000000000000 global_yaw
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2328   .bss.yaw_9dof:0000000000000000 yaw_9dof
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2307   .bss.pitch_9dof:0000000000000000 pitch_9dof
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2321   .bss.roll_9dof:0000000000000000 roll_9dof
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2294   .bss.init_yaw:0000000000000000 init_yaw
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2314   .bss.prev_yaw:0000000000000000 prev_yaw
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2268   .bss.dev_ctx_mg:0000000000000000 dev_ctx_mg
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2282   .bss.dev_ctx_xl:0000000000000000 dev_ctx_xl
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2261   .bss.dev_ctx_gyro:0000000000000000 dev_ctx_gyro
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2233   .bss.data_raw_angular_rate:0000000000000000 data_raw_angular_rate
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2341   .data.data_raw_acceleration:0000000000000000 data_raw_acceleration
+ARM GAS  C:\Users\SF\AppData\Local\Temp\ccVub8ra.s 			page 51
+
+
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2240   .bss.data_raw_magnetic:0000000000000000 data_raw_magnetic
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2247   .bss.delta_acceleration:0000000000000000 delta_acceleration
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2254   .bss.delta_gyro:0000000000000000 delta_gyro
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2226   .bss.angular_rate_dps:0000000000000000 angular_rate_dps
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2275   .bss.dev_ctx_odometry:0000000000000000 dev_ctx_odometry
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2222   .bss.angular_rate_dps:0000000000000000 $d
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2229   .bss.data_raw_angular_rate:0000000000000000 $d
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2236   .bss.data_raw_magnetic:0000000000000000 $d
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2243   .bss.delta_acceleration:0000000000000000 $d
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2250   .bss.delta_gyro:0000000000000000 $d
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2257   .bss.dev_ctx_gyro:0000000000000000 $d
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2264   .bss.dev_ctx_mg:0000000000000000 $d
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2271   .bss.dev_ctx_odometry:0000000000000000 $d
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2278   .bss.dev_ctx_xl:0000000000000000 $d
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2285   .bss.global_yaw:0000000000000000 $d
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2291   .bss.init_yaw:0000000000000000 $d
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2297   .bss.local_yaw:0000000000000000 $d
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2303   .bss.pitch_9dof:0000000000000000 $d
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2310   .bss.prev_yaw:0000000000000000 $d
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2317   .bss.roll_9dof:0000000000000000 $d
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2324   .bss.yaw_9dof:0000000000000000 $d
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2331   .bss.yaw_step:0000000000000000 $d
+C:\Users\SF\AppData\Local\Temp\ccVub8ra.s:2337   .data.data_raw_acceleration:0000000000000000 $d
+
+UNDEFINED SYMBOLS
+__aeabi_dadd
+__aeabi_dmul
+__aeabi_dsub
+__aeabi_ddiv
+__aeabi_d2f
+HAL_GPIO_WritePin
+htim3
+htim1
+__aeabi_f2d
+cosf
+sinf
+htim4
+htim2
+__aeabi_i2d
+atan2
+sin
+cos
+atan
+tan
+lsm303agr_init
+i3g4250d_init
+i3G4250D_calib_gyro
+lsm303agr_calib_xl
+lsm303agr_read_mag
+i3g4250d_read_norm_gyro
+lsm303agr_read_calibrated_xl
+HAL_TIM_Encoder_Start
+HAL_TIM_PWM_Start
